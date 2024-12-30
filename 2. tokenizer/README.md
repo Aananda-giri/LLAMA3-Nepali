@@ -12,7 +12,7 @@ from transformers import PreTrainedTokenizerFast
 # Example Nepali text
 text = "गत आइतबार साँझपख केही आत्मीय मित्रहरूसँग भलाकुसारीमा थिएँ । गफैगफमा राजनीति र खेलकुदका प्रसंग उठे । त्यत्तिकैमा नेपालमा हुने गरेका साहित्य महोत्सव र वक्ताहरूका बारेमा एकछिन भुलियो । जयपुर साहित्य महोत्सवको कुरा पनि निस्कियो ।"
 
-tokenizer = PreTrainedTokenizerFast.from_pretrained("Aananda-giri/NepaliBPE")
+tokenizer = PreTrainedTokenizerFast.from_pretrained(tokenizer_file="tokenizer.json")
 tokenizer.tokenize(text)
 
 '''
