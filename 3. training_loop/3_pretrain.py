@@ -18,13 +18,14 @@ from previous_chapters import (
     generate_and_print_sample,
     calc_loss_batch,
     evaluate_model,
-    plot_losses
+    plot_losses,
+    Tokenizer,
+    ChatFormat
 )
 
 from functions import delete_checkpoints_except_n_highest_steps, get_max_global_step_file
+from debug_dataloaders import create_debug_dataloaders
 
-# modified. set train_loader length manually (since train_loader is IterableDataset, len(train_loader) won't work)
-len_train_loader = 4781060
 
 def create_dataloaders(num_workers=0):
     ''' 
@@ -40,7 +41,7 @@ def create_dataloaders(num_workers=0):
         shuffle=False,  # modified. to avoid  shuffling the data
         drop_last=True,
         num_workers=num_workers,
-        context_length=args.context_length
+        # context_length=args.context_length
     )
     return train_loader, val_loader
 
@@ -147,10 +148,11 @@ def train_model(model, train_loader, val_loader, optimizer, device,
                 tokens_seen += input_batch.numel()
 
                 # Periodically evaluate the model on the training and validation sets
+                
                 if global_step % eval_freq == 0:
                     train_loss, val_loss = evaluate_model(
                         model, train_loader, val_loader,
-                        device, eval_iter
+                        device, eval_iter, len_train_loader, len_val_loader
                     )
                     train_losses.append(train_loss)
                     val_losses.append(val_loss)
@@ -230,11 +232,9 @@ if __name__ == "__main__":
     # Uncomment the following code to calculate the execution time
     start_time = time.time()
     
-    parser = argparse.ArgumentParser(description='GPT Model Training Configuration')
-    args = parser.parse_args()
+    parser = argparse.ArgumentParser(description='LLAMA3.2 Model Training Configuration')
+    
 
-    parser.add_argument('--data_dir', type=str, default='gutenberg/data',
-                        help='Directory containing the training data')
     parser.add_argument('--output_dir', type=str, default='model_checkpoints',
                         help='Directory where the model checkpoints will be saved')
     parser.add_argument('--n_epochs', type=int, default=1,
@@ -267,19 +267,56 @@ if __name__ == "__main__":
     args = parser.parse_args()
     torch.manual_seed(123)
     
+    
+    # modified. code to load the tokenizer
+    # tokenizer = tiktoken.get_encoding("gpt2")
+    # tokenizer = PreTrainedTokenizerFast.from_pretrained("Aananda-giri/NepaliBPE")
+    tokenizer = Tokenizer("tokenizer.json")
+    chat_tokenizer = ChatFormat(tokenizer)
+    
     if args.debug:
         print(f'---------------------\nDEBUG MODE\n---------------------')
-        LLAMA_CONFIG = {
-            "vocab_size": 50006,      # <len(tokenizer.tokenizer)=50006> Small vocab size for quick embedding testing
-            "context_length": 8,      # Very short context length
-            "emb_dim": 16,            # Minimal embedding dimension
-            "n_heads": 2,             # Minimal number of attention heads
-            "n_layers": 2,            # Minimal number of transformer layers
-            "hidden_dim": 64,         # Scaled-down feedforward dimension
-            "n_kv_groups": 1,         # Simplified attention grouping
-            "drop_rate": 0.0,         # Dropout deactivated for deterministic debugging
-            "qkv_bias": False         # Simplified attention mechanism
+        # Debug mode
+        LLAMA32_CONFIG = {
+            # d_out = emb_dim
+            # Embedding dimension <d_out // num_heads> must be even
+            "vocab_size": 50006,      # <len(tokenizer.tokenizer)=50006> Vocabulary size
+            "context_length": 100,  # Context length
+            # d_in=d_out=emb_dim,
+            # d_out must be divisible by num_heads
+            "emb_dim": 8,            # Embedding dimension
+            # (num_heads must be divisible by num_kv_groups)
+            "n_heads": 4,              # Number of attention heads
+            "n_layers": 2,             # Number of layers
+            "hidden_dim": 16,         # Size of the intermediate dimension in FeedForward
+            "n_kv_groups": 2,           # Key-Value groups for grouped-query attention
+            "rope_base": 500_000.0,     # The base in RoPE's "theta"
+            "dtype": torch.bfloat16,    # Lower-precision dtype to reduce memory usage
+            "rope_freq": {              # RoPE frequency scaling
+                "factor": 32.0,
+                "low_freq_factor": 1.0,
+                "high_freq_factor": 4.0,
+                "original_context_length": 8192,
+            }
         }
+
+        # Custom dataloader for debug mode
+        # --------------------------------
+        def read_text_file(file_path):
+            with open(file_path, "r", encoding="utf-8") as file:
+                text_data = file.read()
+            return text_data
+        text_data = read_text_file("cleaned_bhagavad_gita_data.txt") + " <|endoftext|> "
+        train_loader, val_loader = create_debug_dataloaders(
+            text_data,
+            tokenizer,
+            train_ratio=0.9,
+            batch_size=2,
+            max_length=LLAMA32_CONFIG["context_length"],
+            stride=LLAMA32_CONFIG["context_length"],
+            num_workers=0
+        )
+        
     else:
         # Llama 3.2 200M
         LLAMA32_CONFIG = {
@@ -299,8 +336,31 @@ if __name__ == "__main__":
                 "original_context_length": 8192,
             }
         }
-    LLAMA_SIZE_STR = "200M"
+
+        # Initialize new data loader
+        train_loader, val_loader = create_dataloaders(
+            # train_ratio=0.9,
+            # batch_size=args.batch_size,
+            num_workers=0 
+        )
     
+    LLAMA_SIZE_STR = "2M" if args.debug else "200M"
+    
+    def set_loader_lengths(debug, train_loader=None, val_loader=None):
+        if debug:
+            len_train_loader = len(train_loader)
+            len_val_loader = len(val_loader)
+        else:
+            len_train_loader = 4781060
+            len_val_loader = 531229
+        return len_train_loader, len_val_loader
+
+    global len_train_loader
+    global len_val_loader
+
+    len_train_loader, len_val_loader = set_loader_lengths(
+        args.debug, train_loader, val_loader
+    )
     # re-scaling theta
     # ------------------------------------------------------------
     # it seems we need to scale rope_base based on new context length
@@ -431,15 +491,6 @@ if __name__ == "__main__":
     else:
         print(f'starting new model from scratch')
 
-    
-
-    # modified. code to load the tokenizer
-    # tokenizer = tiktoken.get_encoding("gpt2")
-    # tokenizer = PreTrainedTokenizerFast.from_pretrained("Aananda-giri/NepaliBPE")
-    tokenizer = Tokenizer("tokenizer.json")
-    chat_tokenizer = ChatFormat(tokenizer)
-    
-
     # modified
     # n_epochs = 15
     n_epochs = args.n_epochs
@@ -460,16 +511,9 @@ if __name__ == "__main__":
     # text_data = read_text_file(file_path) + " <|endoftext|> "
     # text_data = text_data[:args.max_text_len]
     # print(f"Tokenizing file {index} of {total_files}: {file_path}")
-
-    # Initialize new data loaders for each book
-    train_loader, val_loader = create_dataloaders(
-        train_ratio=0.9,
-        batch_size=args.batch_size,
-        num_workers=0 
-    )
-
+    
     print(f'len. train_loader: {len_train_loader}')
-    print(f'len.val_loader: {len(val_loader)}')
+    print(f'len.val_loader: {len_val_loader}')  # len(val_loader)
     
     total_steps = len_train_loader * n_epochs
     warmup_steps = int(0.2 * total_steps) # 20% warmup

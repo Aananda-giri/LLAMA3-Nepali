@@ -49,7 +49,7 @@ def create_dataloader_v3(shuffle=True, drop_last=True, num_workers=0):
     # and split it later
     # dataset = dataset.train_test_split(train_size=train_ratio, seed=42)
     # Convert Hugging Face Dataset to PyTorch tensors (we can directly use the dataset as it is already in the correct format)
-    dataset.set_format(type="torch", columns=['input_ids,target_ids'])  # Directly set columns to torch tensors
+    # dataset.set_format(type="torch", columns=['input_ids,target_ids'])  # Directly set columns to torch tensors
 
 
 
@@ -75,7 +75,7 @@ def create_dataloader_v3(shuffle=True, drop_last=True, num_workers=0):
     # Creating the DataLoader for the 'train' split of the dataset with the custom collate_fn
     train_loader = DataLoader(
         dataset['train'],
-        batch_size=batch_size,
+        # batch_size=batch_size,
         shuffle=shuffle,
         drop_last=drop_last,
         num_workers=num_workers,
@@ -84,7 +84,7 @@ def create_dataloader_v3(shuffle=True, drop_last=True, num_workers=0):
 
     val_loader =  DataLoader(
         dataset['test'],
-        batch_size=batch_size,
+        # batch_size=batch_size,
         shuffle=shuffle,
         drop_last=drop_last,
         num_workers=num_workers,
@@ -531,14 +531,18 @@ def calc_loss_batch(input_batch, target_batch, model, device):
     return loss
 
 
-def calc_loss_loader(data_loader, model, device, num_batches=None):
+def calc_loss_loader(data_loader, model, device, num_batches=None, len_data_loader=0):
+    '''
+        - parameter: len_data_loader=None <added to set len_data_loader since we cant calulate len(data_loader) of Iterable>
+    '''
     total_loss = 0.
-    if len(data_loader) == 0:
+
+    if len_data_loader == 0:    # len(data_loader)
         return float("nan")
     elif num_batches is None:
-        num_batches = len(data_loader)
+        num_batches = len_data_loader
     else:
-        num_batches = min(num_batches, len(data_loader))
+        num_batches = min(num_batches, len_data_loader)
     for i, (input_batch, target_batch) in enumerate(data_loader):
         if i < num_batches:
             loss = calc_loss_batch(input_batch, target_batch, model, device)
@@ -548,11 +552,11 @@ def calc_loss_loader(data_loader, model, device, num_batches=None):
     return total_loss / num_batches
 
 
-def evaluate_model(model, train_loader, val_loader, device, eval_iter):
+def evaluate_model(model, train_loader, val_loader, device, eval_iter, len_train_loader=0, len_val_loader=0):
     model.eval()
     with torch.no_grad():
-        train_loss = calc_loss_loader(train_loader, model, device, num_batches=eval_iter)
-        val_loss = calc_loss_loader(val_loader, model, device, num_batches=eval_iter)
+        train_loss = calc_loss_loader(train_loader, model, device, num_batches=eval_iter, len_data_loader = len_train_loader)
+        val_loss = calc_loss_loader(val_loader, model, device, num_batches=eval_iter, len_data_loader = len_val_loader)
     model.train()
     return train_loss, val_loss
 
