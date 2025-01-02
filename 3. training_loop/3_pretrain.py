@@ -250,8 +250,8 @@ if __name__ == "__main__":
                         help='Frequency of evaluations during training')
     parser.add_argument('--save_ckpt_freq', type=int, default=100_000,
                         help='Frequency of saving model checkpoints during training')
-    parser.add_argument('--lr', type=float, default=0.001,
-                        help='Learning rate for the optimizer') # this was originally set to 5e-4 in the book by mistake
+    parser.add_argument('--lr', type=float, default=1e-4,
+                        help='Learning rate for the optimizer') # this was originally set to 5e-4 in the book by mistake correction: 0.001
     parser.add_argument('--batch_size', type=int, default=4,
                         help='Batch size for training')
     parser.add_argument('--debug', type=bool, default=False,
