@@ -84,46 +84,50 @@ def train_model(model, train_loader, val_loader, optimizer, device,
         for epoch in range(n_epochs):
             model.train()   # Training mode
             for input_batch, target_batch in train_loader:
-                # modified. added to resume
-                if not done_resume and previous_global_step and train_loader_index < train_loader_resume_index:
-                    # naive implementation.
-                    # to iterate through train_loader until train_loader_index gets to train_loader_resume_index
-
-                    train_loader_index += 1    # previous_global_step % len(train_loader)
-                    # print('.', end = '')
-                    continue    # continue train_loader till global_step gets to previous_global_step
-                # modified. added
-                if not done_resume and previous_global_step:
-                    # this code is supposed to runs only once
-                    done_resume = True
-                    global_step = previous_global_step
-                    print('\n' + '-'*70 + '\n')
-                    print(f"\n{'-'*70}\n resuming from global_step : {global_step} \n train_loader_index: {train_loader_index} \n len_train_loader: {len_train_loader}", end = '\n' + '-'*70 + '\n')
-
                 optimizer.zero_grad()
                 global_step += 1
 
                 if args.debug:
-                    # break early for debugging
-                    if global_step > 10000:
-                        print("Debugging: stopping early")
-                        generate_and_print_sample(PROMPT="रामले भात", tokenizer=tokenizer, chat_tokenizer=chat_tokenizer, model=model, device=device, context_length = LLAMA32_CONFIG["context_length"])
-                        break
-
-                # Adjust the learning rate based on the current phase (warmup or cosine annealing)
-                if global_step < warmup_steps:
-                    # Linear warmup
-                    lr = initial_lr + global_step * lr_increment  
+                    # stop early for debugging
+                    # if global_step > 10000:
+                    #     print("Debugging: stopping early")
+                    #     generate_and_print_sample(PROMPT="रामले भात", tokenizer=tokenizer, chat_tokenizer=chat_tokenizer, model=model, device=device, context_length = LLAMA32_CONFIG["context_length"])
+                    #     break
+                    track_lrs = []
                 else:
-                    # Cosine annealing after warmup
-                    progress = ((global_step - warmup_steps) / 
-                                (total_training_steps - warmup_steps))
-                    lr = min_lr + (peak_lr - min_lr) * 0.5 * (1 + math.cos(math.pi * progress))
+                    # modified. added to resume feature
+                    if not done_resume and previous_global_step and train_loader_index < train_loader_resume_index:
+                        # naive implementation.
+                        # to iterate through train_loader until train_loader_index gets to train_loader_resume_index
 
-                # Apply the calculated learning rate to the optimizer
-                for param_group in optimizer.param_groups:
-                    param_group["lr"] = lr
-                track_lrs.append(lr)  # Store the current learning rate
+                        train_loader_index += 1    # previous_global_step % len(train_loader)
+                        # print('.', end = '')
+                        continue    # continue train_loader till global_step gets to previous_global_step
+                    # modified. added
+                    if not done_resume and previous_global_step:
+                        # this code is supposed to runs only once
+                        done_resume = True
+                        global_step = previous_global_step
+                        print('\n' + '-'*70 + '\n')
+                        print(f"\n{'-'*70}\n resuming from global_step : {global_step} \n train_loader_index: {train_loader_index} \n len_train_loader: {len_train_loader}", end = '\n' + '-'*70 + '\n')
+
+                
+
+
+                    # Adjust the learning rate based on the current phase (warmup or cosine annealing)
+                    if global_step < warmup_steps:
+                        # Linear warmup
+                        lr = initial_lr + global_step * lr_increment  
+                    else:
+                        # Cosine annealing after warmup
+                        progress = ((global_step - warmup_steps) / 
+                                    (total_training_steps - warmup_steps))
+                        lr = min_lr + (peak_lr - min_lr) * 0.5 * (1 + math.cos(math.pi * progress))
+
+                    # Apply the calculated learning rate to the optimizer
+                    for param_group in optimizer.param_groups:
+                        param_group["lr"] = lr
+                    track_lrs.append(lr)  # Store the current learning rate
 
                 # Calculate and backpropagate the loss
                 loss = calc_loss_batch(input_batch, target_batch, model, device)
@@ -132,18 +136,19 @@ def train_model(model, train_loader, val_loader, optimizer, device,
                 # Apply gradient clipping after the warmup phase to avoid exploding gradients
 
                 
-                '''
-                * Gradient clipping might be unnecessary during this warm-up because gradients tend to be smaller.
-                '''
-                if BOOK_VERSION:
-                    if global_step > warmup_steps:
-                        # Triggered After completing the warm-up phase (dont know why this matters. it was implemented by sebastian)
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  
-                else:
-                    if global_step >= warmup_steps:  # the book originally used global_step > warmup_steps, which lead to a skipped clipping step after warmup
-                        # Triggered During and after the last warm-up step
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                    
+                if not args.debug:
+                    '''
+                    * Gradient clipping might be unnecessary during this warm-up because gradients tend to be smaller.
+                    '''
+                    if BOOK_VERSION:
+                        if global_step > warmup_steps:
+                            # Triggered After completing the warm-up phase (dont know why this matters. it was implemented by sebastian)
+                            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  
+                    else:
+                        if global_step >= warmup_steps:  # the book originally used global_step > warmup_steps, which lead to a skipped clipping step after warmup
+                            # Triggered During and after the last warm-up step
+                            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                
                 optimizer.step()
                 tokens_seen += input_batch.numel()
 
@@ -245,8 +250,8 @@ if __name__ == "__main__":
                         help='Frequency of evaluations during training')
     parser.add_argument('--save_ckpt_freq', type=int, default=100_000,
                         help='Frequency of saving model checkpoints during training')
-    parser.add_argument('--lr', type=float, default=5e-4,
-                        help='Learning rate for the optimizer')
+    parser.add_argument('--lr', type=float, default=0.001,
+                        help='Learning rate for the optimizer') # this was originally set to 5e-4 in the book by mistake
     parser.add_argument('--batch_size', type=int, default=4,
                         help='Batch size for training')
     parser.add_argument('--debug', type=bool, default=False,
@@ -255,7 +260,7 @@ if __name__ == "__main__":
                         help='testing different text sizes.')
     
     # modified. added resume_from_previous_training
-    parser.add_argument('--resume_from_previous_training', type=bool, default=True,
+    parser.add_argument('--resume_from_previous_training', type=str, default="True",
                         help='whether or not to resume from saved previous training checkpoint')
     parser.add_argument('--push_to_hub_every_n_hours', type=int, default=6,
                         help='how often to push to hub in hours.')
@@ -265,6 +270,7 @@ if __name__ == "__main__":
                         help='context length (default: 1024)')
 
     args = parser.parse_args()
+    args.resume_from_previous_training = args.resume_from_previous_training.lower() == 'true'
     torch.manual_seed(123)
     
     
@@ -281,7 +287,7 @@ if __name__ == "__main__":
             # d_out = emb_dim
             # Embedding dimension <d_out // num_heads> must be even
             "vocab_size": 50006,      # <len(tokenizer.tokenizer)=50006> Vocabulary size
-            "context_length": 100,  # Context length
+            "context_length": 10,  # Context length
             # d_in=d_out=emb_dim,
             # d_out must be divisible by num_heads
             "emb_dim": 8,            # Embedding dimension
@@ -363,19 +369,28 @@ if __name__ == "__main__":
     )
     # re-scaling theta
     # ------------------------------------------------------------
-    # it seems we need to scale rope_base based on new context length
+    
     old_context_length = 131_072    # original context length of llama3.2 model
-    LLAMA32_CONFIG["context_length"] =  512 # our new context length
+    new_context_length = LLAMA32_CONFIG["context_length"]  # 512 our new context length
 
     def rescale_theta(theta_old, context_length_old, context_length_new):
-        scaling_factor = context_length_new / context_length_old
+        # # linear scaling by sebastian
+        # scaling_factor = context_length_new / context_length_old
+        
+        '''
+            Using square root scaling (instead of linear scaling as done by sebastian),
+            because linear scaling is resulting in very small theta value.
+            which is slowing the training (slower decrease in loss)
+            might be because of the large difference in context length (137_072 vs 512)
+        '''
+        scaling_factor = math.sqrt(context_length_new/context_length_old)
         theta_new = theta_old * scaling_factor
         return theta_new
 
     LLAMA32_CONFIG["rope_base"] = rescale_theta(
         LLAMA32_CONFIG["rope_base"],
         old_context_length,
-        LLAMA32_CONFIG["context_length"]
+        new_context_length
     )
 
     print("New RoPE theta (i.e. LLAMA32_CONFIG[\"rope_base\"]):", LLAMA32_CONFIG["rope_base"])
@@ -442,7 +457,7 @@ if __name__ == "__main__":
     
     # model = GPTModel(GPT_CONFIG_124M)
     # model.to(device)
-    peak_lr = 0.001  # this was originally set to 5e-4 in the book by mistake
+    peak_lr = args.lr # 0.001  # this was originally set to 5e-4 in the book by mistake
     optimizer = torch.optim.AdamW(model.parameters(), lr=peak_lr, weight_decay=0.1)  # the book accidentally omitted the lr assignment
     
     output_dir = Path(args.output_dir)
@@ -457,6 +472,7 @@ if __name__ == "__main__":
     latest_model_checkpoint = get_max_global_step_file(directory='model_checkpoints')
     
     # if args.load_model and os.path.exists(output_dir):
+    print(f'\n\nargs.resume_from_previous_training: {args.resume_from_previous_training}\n\n')
     if latest_model_checkpoint and args.resume_from_previous_training:
         
         print(f'Loading existing model: {latest_model_checkpoint}', end = '\n' + '-'*70 + '\n')
