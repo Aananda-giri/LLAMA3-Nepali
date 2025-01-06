@@ -27,20 +27,20 @@ from functions import delete_checkpoints_except_n_highest_steps, get_max_global_
 from debug_dataloaders import create_debug_dataloaders
 
 
-def create_dataloaders(num_workers=0):
+def create_dataloaders(batch_size, num_workers):
     ''' 
     modified. sebastian
     parameter: text_data is removed
     parameter: max_length, stride are removed
     
     modified. GPT2
-    parameter: batch_size: removed  (since we are loading pre tokenized data from huggingface)
     parameter: train_ratio: removed (data is pre-split in train and test in hf data (since it takes a while to split))
     '''
     train_loader, val_loader = create_dataloader_v3(
+        batch_size=batch_size,
         shuffle=False,  # modified. to avoid  shuffling the data
         drop_last=True,
-        num_workers=num_workers,
+        num_workers=num_workers
         # context_length=args.context_length
     )
     return train_loader, val_loader
@@ -51,6 +51,24 @@ def convert_time(seconds):
     minutes, seconds = divmod(rem, 60)
     return int(hours), int(minutes), int(seconds)
 
+
+
+def get_lr(initial_lr, min_lr, peak_lr, global_step, warmup_steps, lr_increment, const_min_lr_steps):
+     # Adjust the learning rate based on the current phase (warmup or cosine annealing)
+    # 1) Linear warmup
+    if global_step < warmup_steps:
+        lr = initial_lr + global_step * lr_increment  
+        return lr
+    # 2) Cosine annealing after warmup
+    elif global_step < const_min_lr_steps:
+        
+        progress = ((global_step - warmup_steps) / (const_min_lr_steps - warmup_steps)) # modified. to smoothen the curve original: progress = ((global_step - warmup_steps) / (total_training_steps - warmup_steps))
+        lr = min_lr + (peak_lr - min_lr) * 0.5 * (
+            1 + math.cos(math.pi * progress))
+        return lr
+    # 3) constant minumum learning rate
+    else:
+        return min_lr
 
 
 BOOK_VERSION = True
@@ -74,10 +92,13 @@ def train_model(model, train_loader, val_loader, optimizer, device,
     # Retrieve the maximum learning rate from the optimizer
     peak_lr = optimizer.param_groups[0]["lr"]
 
-    # Calculate the total number of iterations in the training process
-    total_training_steps = len_train_loader * n_epochs# len(train_loader) * n_epochs
+    # # Calculate the total number of iterations in the training process
+    # total_training_steps = len_train_loader * n_epochs# len(train_loader) * n_epochs
+    
+    # modified. use constant min_lr for last 10% of training data
+    const_min_lr_steps = int(.9 * len_train_loader)
 
-    # Calculate the learning rate increment during the warmup phase
+    # (calclulate initially) Calculate the learning rate increment during the warmup phase
     lr_increment = (peak_lr - initial_lr) / warmup_steps
     try:
         done_resume = False # modified. to check if the resume script has been run once
@@ -110,19 +131,9 @@ def train_model(model, train_loader, val_loader, optimizer, device,
                         global_step = previous_global_step
                         print('\n' + '-'*70 + '\n')
                         print(f"\n{'-'*70}\n resuming from global_step : {global_step} \n train_loader_index: {train_loader_index} \n len_train_loader: {len_train_loader}", end = '\n' + '-'*70 + '\n')
-
-                
-
-
-                    # Adjust the learning rate based on the current phase (warmup or cosine annealing)
-                    if global_step < warmup_steps:
-                        # Linear warmup
-                        lr = initial_lr + global_step * lr_increment  
-                    else:
-                        # Cosine annealing after warmup
-                        progress = ((global_step - warmup_steps) / 
-                                    (total_training_steps - warmup_steps))
-                        lr = min_lr + (peak_lr - min_lr) * 0.5 * (1 + math.cos(math.pi * progress))
+                    
+                        # modified. constant minimum learning rate
+                        lr = get_lr(initial_lr, min_lr, peak_lr, global_step, warmup_steps, lr_increment, const_min_lr_steps)
 
                     # Apply the calculated learning rate to the optimizer
                     for param_group in optimizer.param_groups:
@@ -256,6 +267,8 @@ if __name__ == "__main__":
                         help='Batch size for training')
     parser.add_argument('--debug', type=bool, default=False,
                         help='Uses a very small model for debugging purposes')
+    parser.add_argument('--compile_model', type=bool, default=True, # modified. added
+                        help='whether or not to compile the model')
     parser.add_argument('--max_text_len', type=int, default=45000000,
                         help='testing different text sizes.')
     
@@ -271,6 +284,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     args.resume_from_previous_training = args.resume_from_previous_training.lower() == 'true'
+    args.compile_model = args.compile_model.lower() == 'true'
     torch.manual_seed(123)
     
     
@@ -346,7 +360,7 @@ if __name__ == "__main__":
         # Initialize new data loader
         train_loader, val_loader = create_dataloaders(
             # train_ratio=0.9,
-            # batch_size=args.batch_size,
+            batch_size=args.batch_size,
             num_workers=0 
         )
     
@@ -357,8 +371,8 @@ if __name__ == "__main__":
             len_train_loader = len(train_loader)
             len_val_loader = len(val_loader)
         else:
-            len_train_loader = 4781060
-            len_val_loader = 531229
+            len_train_loader = 4781060 / args.batch_size    # train data contains 4781060 rows
+            len_val_loader = 531229 / args.batch_size
         return len_train_loader, len_val_loader
 
     global len_train_loader
@@ -397,6 +411,12 @@ if __name__ == "__main__":
     
 
     model = Llama3Model(LLAMA32_CONFIG)
+    # compile the model
+    if args.compile_model:
+        print("compiling the model... (takes a ~minute)")
+        unoptimized_model = model
+        model = torch.compile(model) # requires PyTorch 2.0
+
     
     # Check buffers
     # --------------

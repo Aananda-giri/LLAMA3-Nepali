@@ -28,7 +28,7 @@ from datasets import load_dataset
 #####################################
 
 
-def create_dataloader_v3(shuffle=True, drop_last=True, num_workers=0):
+def create_dataloader_v3(batch_size, shuffle=True, drop_last=True, num_workers=0):
     '''
     modified.
     * parameter: text removed
@@ -75,7 +75,7 @@ def create_dataloader_v3(shuffle=True, drop_last=True, num_workers=0):
     # Creating the DataLoader for the 'train' split of the dataset with the custom collate_fn
     train_loader = DataLoader(
         dataset['train'],
-        # batch_size=batch_size,
+        batch_size=batch_size,
         shuffle=shuffle,
         drop_last=drop_last,
         num_workers=num_workers,
@@ -84,7 +84,7 @@ def create_dataloader_v3(shuffle=True, drop_last=True, num_workers=0):
 
     val_loader =  DataLoader(
         dataset['test'],
-        # batch_size=batch_size,
+        batch_size=batch_size,
         shuffle=shuffle,
         drop_last=drop_last,
         num_workers=num_workers,
@@ -529,7 +529,6 @@ def calc_loss_batch(input_batch, target_batch, model, device):
     logits = model(input_batch)
     loss = torch.nn.functional.cross_entropy(logits.flatten(0, 1), target_batch.flatten())
     return loss
-
 
 def calc_loss_loader(data_loader, model, device, num_batches=None, len_data_loader=0):
     '''
