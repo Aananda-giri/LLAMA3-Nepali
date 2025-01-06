@@ -77,7 +77,7 @@ BOOK_VERSION = True
 
 def train_model(model, train_loader, val_loader, optimizer, device,
         n_epochs, eval_freq, eval_iter, start_context, output_dir, tokenizer,
-        warmup_steps, previous_global_step=None, initial_lr=3e-05, min_lr=1e-6, 
+        previous_global_step=None, initial_lr=3e-05, min_lr=1e-6, 
         train_losses = [], val_losses=[], track_tokens_seen=[], track_lrs=[],
         previous_epochs = 0
             ):
@@ -95,8 +95,15 @@ def train_model(model, train_loader, val_loader, optimizer, device,
     # # Calculate the total number of iterations in the training process
     # total_training_steps = len_train_loader * n_epochs# len(train_loader) * n_epochs
     
+    total_steps = len_train_loader * args.n_epochs
+    print(f'total_steps: {total_steps}')
+    warmup_steps = int(0.2 * total_steps) # 20% warmup
+    print(f' warmup_steps: {warmup_steps}')
+
     # modified. use constant min_lr for last 10% of training data
-    const_min_lr_steps = int(.9 * len_train_loader)
+    const_min_lr_steps = int(.9 * total_steps)
+    print(f' constant min_lr after: {const_min_lr_steps} steps')
+    
 
     # (calclulate initially) Calculate the learning rate increment during the warmup phase
     lr_increment = (peak_lr - initial_lr) / warmup_steps
@@ -551,14 +558,10 @@ if __name__ == "__main__":
     print(f'len. train_loader: {len_train_loader}')
     print(f'len.val_loader: {len_val_loader}')  # len(val_loader)
     
-    total_steps = len_train_loader * n_epochs
-    warmup_steps = int(0.2 * total_steps) # 20% warmup
-    print(f' warmup_steps: {warmup_steps}')
-    
     train_losses, val_losses, track_tokens_seen, track_lrs = train_model(
         model, train_loader, val_loader, optimizer, device, n_epochs=n_epochs,
         eval_freq=args.eval_freq, eval_iter=1, start_context="रामले भात", # "Every effort moves you", <modified>
-        output_dir=output_dir, tokenizer=tokenizer, warmup_steps=warmup_steps, previous_global_step=previous_global_step,
+        output_dir=output_dir, tokenizer=tokenizer, previous_global_step=previous_global_step,
         initial_lr=1e-5, min_lr=1e-5,
         train_losses = train_losses, val_losses=val_losses, track_tokens_seen=track_tokens_seen, track_lrs=track_lrs,
         # previous_epochs = previous_epochs
