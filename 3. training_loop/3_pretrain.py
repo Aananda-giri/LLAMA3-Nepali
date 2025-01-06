@@ -76,11 +76,14 @@ BOOK_VERSION = True
 
 
 def train_model(model, train_loader, val_loader, optimizer, device,
-        n_epochs, eval_freq, eval_iter, start_context, output_dir, tokenizer,
-        previous_global_step=None, initial_lr=3e-05, min_lr=1e-6, 
-        train_losses = [], val_losses=[], track_tokens_seen=[], track_lrs=[],
-        previous_epochs = 0
-            ):
+            n_epochs, eval_freq, eval_iter, start_context, output_dir, tokenizer,
+            previous_global_step=None, train_losses = [], val_losses=[], track_tokens_seen=[],
+            track_lrs=[], previous_epochs = 0
+    ):
+    
+    initial_lr=args.initial_lr
+    min_lr=args.min_lr
+
     print("Training ...")
     # train_losses, val_losses, track_tokens_seen, track_lrs = [], [], [], []
     tokens_seen, global_step = 0, -1
@@ -139,8 +142,8 @@ def train_model(model, train_loader, val_loader, optimizer, device,
                         print('\n' + '-'*70 + '\n')
                         print(f"\n{'-'*70}\n resuming from global_step : {global_step} \n train_loader_index: {train_loader_index} \n len_train_loader: {len_train_loader}", end = '\n' + '-'*70 + '\n')
                     
-                        # modified. constant minimum learning rate
-                        lr = get_lr(initial_lr, min_lr, peak_lr, global_step, warmup_steps, lr_increment, const_min_lr_steps)
+                    # modified. added constant minimum learning rate along with linear_warmup+cosine_decay
+                    lr = get_lr(initial_lr, min_lr, peak_lr, global_step, warmup_steps, lr_increment, const_min_lr_steps)
 
                     # Apply the calculated learning rate to the optimizer
                     for param_group in optimizer.param_groups:
@@ -268,16 +271,22 @@ if __name__ == "__main__":
                         help='Frequency of evaluations during training')
     parser.add_argument('--save_ckpt_freq', type=int, default=100_000,
                         help='Frequency of saving model checkpoints during training')
-    parser.add_argument('--lr', type=float, default=1e-4,
+    parser.add_argument('--peak_lr', type=float, default=1e-4,
+                        help='Learning rate for the optimizer') # this was originally set to 5e-4 in the book by mistake correction: 0.001
+    parser.add_argument('--initial_lr', type=float, default=1e-5,
+                        help='Learning rate for the optimizer') # this was originally set to 5e-4 in the book by mistake correction: 0.001
+    parser.add_argument('--min_lr', type=float, default=1e-5,
                         help='Learning rate for the optimizer') # this was originally set to 5e-4 in the book by mistake correction: 0.001
     parser.add_argument('--batch_size', type=int, default=4,
                         help='Batch size for training')
-    parser.add_argument('--debug', type=bool, default=False,
+    parser.add_argument('--debug', type=str, default="False",
                         help='Uses a very small model for debugging purposes')
-    parser.add_argument('--compile_model', type=bool, default=True, # modified. added
+    parser.add_argument('--compile_model', type=str, default="True", # modified. added
                         help='whether or not to compile the model')
     parser.add_argument('--max_text_len', type=int, default=45000000,
                         help='testing different text sizes.')
+    
+    
     
     # modified. added resume_from_previous_training
     parser.add_argument('--resume_from_previous_training', type=str, default="True",
@@ -292,6 +301,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     args.resume_from_previous_training = args.resume_from_previous_training.lower() == 'true'
     args.compile_model = args.compile_model.lower() == 'true'
+    args.debug = args.debug.lower() == 'true'
     torch.manual_seed(123)
     
     
@@ -345,6 +355,9 @@ if __name__ == "__main__":
         )
         
     else:
+        # 
+        print(f'---------------------\nDEBUG MODE=False\n---------------------')
+
         # Llama 3.2 200M
         LLAMA32_CONFIG = {
             "vocab_size": 50006,       # <len(tokenizer.tokenizer)=50006> 128_256 reduced vocabulary size
@@ -484,8 +497,9 @@ if __name__ == "__main__":
     
     # model = GPTModel(GPT_CONFIG_124M)
     # model.to(device)
-    peak_lr = args.lr # 0.001  # this was originally set to 5e-4 in the book by mistake
-    optimizer = torch.optim.AdamW(model.parameters(), lr=peak_lr, weight_decay=0.1)  # the book accidentally omitted the lr assignment
+    peak_lr = args.peak_lr # 0.001  # this was originally set to 5e-4 in the book by mistake
+    weight_decay = 0.1 if args.debug else 0.01
+    optimizer = torch.optim.AdamW(model.parameters(), lr=peak_lr, weight_decay=0.01)  # the book accidentally omitted the lr assignment
     
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -562,7 +576,6 @@ if __name__ == "__main__":
         model, train_loader, val_loader, optimizer, device, n_epochs=n_epochs,
         eval_freq=args.eval_freq, eval_iter=1, start_context="रामले भात", # "Every effort moves you", <modified>
         output_dir=output_dir, tokenizer=tokenizer, previous_global_step=previous_global_step,
-        initial_lr=1e-5, min_lr=1e-5,
         train_losses = train_losses, val_losses=val_losses, track_tokens_seen=track_tokens_seen, track_lrs=track_lrs,
         # previous_epochs = previous_epochs
         
