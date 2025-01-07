@@ -186,7 +186,7 @@ def train_model(model, train_loader, val_loader, optimizer, device,
                     print(f"Ep {epoch+1} (Iter {global_step:06d}): "
                         f"Train loss {train_loss:.3f}, "
                         f"Val loss {val_loss:.3f}"
-                        f"Time: {time_elapsed}"
+                        f" Time: {time_elapsed}"
                     )
                 
                 # Save at every 10,000 steps
