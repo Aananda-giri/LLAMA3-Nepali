@@ -40,4 +40,4 @@
  --peak_lr 1e-4 \
  --initial_lr 1e-5 \
  --min_lr 1e-5 \
- -- push_to_hub_hours 11.5 \
+ -- push_to_hub_hours 11.5
