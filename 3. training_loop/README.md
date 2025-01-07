@@ -17,7 +17,7 @@
  --save_ckpt_freq_steps 200 \
  --debug True \
 
-## Files required for stand-alone training
+## Files required for stand-alone-debug training
 
 - [3_pretrain.py](./3_pretrain.py)
 - [previous_chapters.py](./previous_chapters.py)
@@ -25,3 +25,18 @@
 - [tokenizer.json](./tokenizer.json)
 - [debug_dataloaders.py](./debug_dataloaders.py)
 - [cleaned_bhagwat_gita.txt](./cleaned_bhagwat_gita.txt)
+
+# Run actual train-data
+
+## Run Debug code
+
+!python 3_pretrain.py \
+ --n_epochs 1 \
+ --batch_size 2 \
+ --output_dir model_checkpoints \
+ --eval_freq 1000 \
+ --save_ckpt_freq_steps 5000 \
+ --debug False \
+ --peak_lr 1e-4 \
+ --initial_lr 1e-5 \
+ --min_lr 1e-5 \

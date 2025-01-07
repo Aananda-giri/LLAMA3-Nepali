@@ -391,8 +391,8 @@ if __name__ == "__main__":
             len_train_loader = len(train_loader)
             len_val_loader = len(val_loader)
         else:
-            len_train_loader = 4781060 / args.batch_size    # train data contains 4781060 rows
-            len_val_loader = 531229 / args.batch_size
+            len_train_loader = int(4781060 / args.batch_size)    # train data contains 4781060 rows
+            len_val_loader = int(531229 / args.batch_size)
         return len_train_loader, len_val_loader
 
     global len_train_loader
