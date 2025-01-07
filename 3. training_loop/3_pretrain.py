@@ -23,7 +23,7 @@ from previous_chapters import (
     ChatFormat
 )
 
-from functions import delete_checkpoints_except_n_highest_steps, get_max_global_step_file, format_time_elapsed
+from functions import delete_checkpoints_except_n_highest_steps, get_max_global_step_file, format_time_elapsed, push_latest_checkpoint_to_hub
 from debug_dataloaders import create_debug_dataloaders
 
 
@@ -111,8 +111,13 @@ def train_model(model, train_loader, val_loader, optimizer, device,
     # (calclulate initially) Calculate the learning rate increment during the warmup phase
     lr_increment = (peak_lr - initial_lr) / warmup_steps
     try:
+        
         evaluated_once = False  # modified. to evaluate the model at least once (at the start)
         done_resume = False # modified. to check if the resume script has been run once
+        pushed_to_hub_once = False
+        push_to_hub_seconds = args.push_to_hub_hours * 3600 # seconds so that we dont have to calculate difference in hours by dividing by 3600 at every step.
+        
+        print(f'push to hub once every {args.push_to_hub_hours} hours i.e. {push_to_hub_seconds} seconds..')
         for epoch in range(n_epochs):
             model.train()   # Training mode
             for input_batch, target_batch in train_loader:
@@ -170,10 +175,7 @@ def train_model(model, train_loader, val_loader, optimizer, device,
                 optimizer.step()
                 tokens_seen += input_batch.numel()
 
-                # Periodically evaluate the model on the training and validation sets
-                
                 if global_step % eval_freq == 0 or not evaluated_once:
-                    evaluated_once = True
                     train_loss, val_loss = evaluate_model(
                         model, train_loader, val_loader,
                         device, eval_iter, len_train_loader, len_val_loader
@@ -188,6 +190,7 @@ def train_model(model, train_loader, val_loader, optimizer, device,
                         f"Val loss {val_loss:.3f}"
                         f" Time: {time_elapsed}"
                     )
+                    evaluated_once = True
                 
                 # Save at every 10,000 steps
                 if global_step % args.save_ckpt_freq_steps == 0 and global_step != 0:
@@ -211,6 +214,12 @@ def train_model(model, train_loader, val_loader, optimizer, device,
                     # generate_and_print_sample(
                     #     model, tokenizer, device, start_context
                     # )
+                
+                # push latest checkpoint to hub (once every 11 hours)
+                time_elapsed = (time.time() - start_time)
+                if current_elapsed_hours > push_to_hub_seconds and not pushed_to_hub_once:
+                    push_latest_checkpoint_to_hub()
+                    pushed_to_hub_once = True
                     
             # Save at the end of each epoch
             delete_checkpoints_except_n_highest_steps(n=1)  # modified. to delete the previous steps checkpoint
@@ -292,8 +301,8 @@ if __name__ == "__main__":
     # modified. added resume_from_previous_training
     parser.add_argument('--resume_from_previous_training', type=str, default="True",
                         help='whether or not to resume from saved previous training checkpoint')
-    parser.add_argument('--push_to_hub_every_n_hours', type=int, default=6,
-                        help='how often to push to hub in hours.')
+    parser.add_argument('--push_to_hub_hours', type=float, default=11.5,
+                        help='how often to push to hub in number of steps.')
     parser.add_argument('--save_ckpt_freq_steps', type=int, default=10_000,
                         help='how often to save the model checkpoint in steps')
     parser.add_argument('--context_length', type=int, default=1024,
@@ -358,7 +367,6 @@ if __name__ == "__main__":
     else:
         # 
         print(f'---------------------\nDEBUG MODE=False\n---------------------')
-
         # Llama 3.2 200M
         LLAMA32_CONFIG = {
             "vocab_size": 50006,       # <len(tokenizer.tokenizer)=50006> 128_256 reduced vocabulary size
