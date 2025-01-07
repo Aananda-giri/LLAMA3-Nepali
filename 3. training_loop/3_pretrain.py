@@ -1,4 +1,4 @@
-# code from https://github.com/rasbt/LLMs-from-scratch/blob/main/appendix-D/01_main-chapter-code/appendix-D.ipynb
+# modified code from https://github.com/rasbt/LLMs-from-scratch/blob/main/appendix-D/01_main-chapter-code/appendix-D.ipynb
 
 import argparse
 import math
@@ -135,7 +135,7 @@ def train_model(model, train_loader, val_loader, optimizer, device,
                     global_step = previous_global_step
                     print('\n' + '-'*70 + '\n')
                     time_elapsed = format_time_elapsed(start_time, time.time())
-                    print(f"\n{'-'*70}\n resuming from global_step : {global_step} \n train_loader_index: {train_loader_index} \n len_train_loader: {len_train_loader} \n Time: {time_elapsed:.3f}", end = '\n' + '-'*70 + '\n')
+                    print(f"\n{'-'*70}\n resuming from global_step : {global_step} \n train_loader_index: {train_loader_index} \n len_train_loader: {len_train_loader} \n Time: {time_elapsed}", end = '\n' + '-'*70 + '\n')
                 
                 optimizer.zero_grad()
 
@@ -186,7 +186,7 @@ def train_model(model, train_loader, val_loader, optimizer, device,
                     print(f"Ep {epoch+1} (Iter {global_step:06d}): "
                         f"Train loss {train_loss:.3f}, "
                         f"Val loss {val_loss:.3f}"
-                        f"Time: {time_elapsed:.3f}"
+                        f"Time: {time_elapsed}"
                     )
                 
                 # Save at every 10,000 steps
