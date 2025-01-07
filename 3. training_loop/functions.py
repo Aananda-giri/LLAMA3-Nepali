@@ -76,3 +76,41 @@ def get_max_global_step_file(directory='model_checkpoints'):
                     print(f'file: {filename} : {Ex}')
     
     return os.path.join(directory, max_steps_file) if max_steps_file else None
+
+from datetime import timedelta
+import time
+
+def format_time_elapsed(start_time, end_time):
+    # Calculate the time difference
+    time_diff = end_time - start_time
+    
+    # Convert time difference to days, hours, minutes, and seconds
+    days = time_diff // (24 * 3600)
+    hours = (time_diff % (24 * 3600)) // 3600
+    minutes = (time_diff % 3600) // 60
+    seconds = time_diff % 60
+    
+    # Format the elapsed time as a string
+    elapsed_time = []
+    if days > 0:
+        elapsed_time.append(f"{int(days)} day{'s' if days > 1 else ''}")
+    if hours > 0:
+        elapsed_time.append(f"{int(hours)} hour{'s' if hours > 1 else ''}")
+    if minutes > 0:
+        elapsed_time.append(f"{int(minutes)} minute{'s' if minutes > 1 else ''}")
+    if seconds > 0 or not elapsed_time:  # Ensure we always display seconds
+        elapsed_time.append(f"{int(seconds)} second{'s' if seconds > 1 else ''}")
+    
+    # Join all parts and return the result
+    return ', '.join(elapsed_time)
+
+
+
+
+if __name__ == "__main__":
+    # Example usage:
+    start_time = time.time()  # Get current time as a timestamp
+    time.sleep(5)  # Wait for 5 seconds to simulate elapsed time
+    end_time = time.time()  # Get the new timestamp
+
+    print(format_time_elapsed(start_time, end_time))

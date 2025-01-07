@@ -23,7 +23,7 @@ from previous_chapters import (
     ChatFormat
 )
 
-from functions import delete_checkpoints_except_n_highest_steps, get_max_global_step_file
+from functions import delete_checkpoints_except_n_highest_steps, get_max_global_step_file, format_time_elapsed
 from debug_dataloaders import create_debug_dataloaders
 
 
@@ -107,48 +107,45 @@ def train_model(model, train_loader, val_loader, optimizer, device,
     const_min_lr_steps = int(.9 * total_steps)
     print(f' constant min_lr after: {const_min_lr_steps} steps')
     
-
+    
     # (calclulate initially) Calculate the learning rate increment during the warmup phase
     lr_increment = (peak_lr - initial_lr) / warmup_steps
     try:
+        evaluated_once = False  # modified. to evaluate the model at least once (at the start)
         done_resume = False # modified. to check if the resume script has been run once
         for epoch in range(n_epochs):
             model.train()   # Training mode
             for input_batch, target_batch in train_loader:
-                optimizer.zero_grad()
+                
                 global_step += 1
+                train_loader_index += 1    # previous_global_step % len(train_loader)
 
-                if args.debug:
-                    # stop early for debugging
-                    # if global_step > 10000:
-                    #     print("Debugging: stopping early")
-                    #     generate_and_print_sample(PROMPT="रामले भात", tokenizer=tokenizer, chat_tokenizer=chat_tokenizer, model=model, device=device, context_length = LLAMA32_CONFIG["context_length"])
-                    #     break
-                    track_lrs = []
-                else:
-                    # modified. added to resume feature
-                    if not done_resume and previous_global_step and train_loader_index < train_loader_resume_index:
+                # modified. added to resume feature
+                if not done_resume and previous_global_step:
+                    if train_loader_index < train_loader_resume_index:
                         # naive implementation.
                         # to iterate through train_loader until train_loader_index gets to train_loader_resume_index
 
-                        train_loader_index += 1    # previous_global_step % len(train_loader)
+                        # train_loader_index += 1    # previous_global_step % len(train_loader)
                         # print('.', end = '')
                         continue    # continue train_loader till global_step gets to previous_global_step
-                    # modified. added
-                    if not done_resume and previous_global_step:
-                        # this code is supposed to runs only once
-                        done_resume = True
-                        global_step = previous_global_step
-                        print('\n' + '-'*70 + '\n')
-                        print(f"\n{'-'*70}\n resuming from global_step : {global_step} \n train_loader_index: {train_loader_index} \n len_train_loader: {len_train_loader}", end = '\n' + '-'*70 + '\n')
                     
-                    # modified. added constant minimum learning rate along with linear_warmup+cosine_decay
-                    lr = get_lr(initial_lr, min_lr, peak_lr, global_step, warmup_steps, lr_increment, const_min_lr_steps)
+                    # this code is supposed to runs only once (at the end of skipping dataloaders)
+                    done_resume = True
+                    global_step = previous_global_step
+                    print('\n' + '-'*70 + '\n')
+                    time_elapsed = format_time_elapsed(start_time, time.time())
+                    print(f"\n{'-'*70}\n resuming from global_step : {global_step} \n train_loader_index: {train_loader_index} \n len_train_loader: {len_train_loader} \n Time: {time_elapsed:.3f}", end = '\n' + '-'*70 + '\n')
+                
+                optimizer.zero_grad()
 
-                    # Apply the calculated learning rate to the optimizer
-                    for param_group in optimizer.param_groups:
-                        param_group["lr"] = lr
-                    track_lrs.append(lr)  # Store the current learning rate
+                # modified. added constant minimum learning rate along with linear_warmup+cosine_decay
+                lr = get_lr(initial_lr, min_lr, peak_lr, global_step, warmup_steps, lr_increment, const_min_lr_steps)
+
+                # Apply the calculated learning rate to the optimizer
+                for param_group in optimizer.param_groups:
+                    param_group["lr"] = lr
+                track_lrs.append(lr)  # Store the current learning rate
 
                 # Calculate and backpropagate the loss
                 loss = calc_loss_batch(input_batch, target_batch, model, device)
@@ -175,7 +172,8 @@ def train_model(model, train_loader, val_loader, optimizer, device,
 
                 # Periodically evaluate the model on the training and validation sets
                 
-                if global_step % eval_freq == 0:
+                if global_step % eval_freq == 0 or not evaluated_once:
+                    evaluated_once = True
                     train_loss, val_loss = evaluate_model(
                         model, train_loader, val_loader,
                         device, eval_iter, len_train_loader, len_val_loader
@@ -184,9 +182,11 @@ def train_model(model, train_loader, val_loader, optimizer, device,
                     val_losses.append(val_loss)
                     track_tokens_seen.append(tokens_seen)
                     # Print the current losses
+                    time_elapsed = format_time_elapsed(start_time, time.time())
                     print(f"Ep {epoch+1} (Iter {global_step:06d}): "
                         f"Train loss {train_loss:.3f}, "
                         f"Val loss {val_loss:.3f}"
+                        f"Time: {time_elapsed:.3f}"
                     )
                 
                 # Save at every 10,000 steps
@@ -256,6 +256,7 @@ def train_model(model, train_loader, val_loader, optimizer, device,
 if __name__ == "__main__":
     # Note:
     # Uncomment the following code to calculate the execution time
+    global start_time
     start_time = time.time()
     
     parser = argparse.ArgumentParser(description='LLAMA3.2 Model Training Configuration')
