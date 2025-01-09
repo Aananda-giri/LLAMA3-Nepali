@@ -219,7 +219,7 @@ def train_model(model, train_loader, val_loader, optimizer, device,
                 
                 # push latest checkpoint to hub (once every 11 hours)
                 time_elapsed = (time.time() - start_time)
-                if push_to_hub_seconds > time_elapsed and not pushed_to_hub_once:
+                if time_elapsed > push_to_hub_seconds and not pushed_to_hub_once:
                     push_latest_checkpoint_to_hub()
                     pushed_to_hub_once = True
                     
