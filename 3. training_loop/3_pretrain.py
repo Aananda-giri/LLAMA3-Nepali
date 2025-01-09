@@ -51,25 +51,25 @@ def convert_time(seconds):
     minutes, seconds = divmod(rem, 60)
     return int(hours), int(minutes), int(seconds)
 
-
-
-def get_lr(initial_lr, min_lr, peak_lr, global_step, warmup_steps, lr_increment, const_min_lr_steps):
+def get_lr(initial_lr, min_lr, peak_lr, global_step, warmup_steps, const_peak_steps, lr_increment, const_min_lr_steps):
      # Adjust the learning rate based on the current phase (warmup or cosine annealing)
     # 1) Linear warmup
     if global_step < warmup_steps:
         lr = initial_lr + global_step * lr_increment  
         return lr
-    # 2) Cosine annealing after warmup
+    # 2) constant peak larning rate
+    elif global_step < const_peak_steps:
+        return peak_lr
+    # 3) Cosine annealing after constant peak learning rate
     elif global_step < const_min_lr_steps:
         
-        progress = ((global_step - warmup_steps) / (const_min_lr_steps - warmup_steps)) # modified. to smoothen the curve original: progress = ((global_step - warmup_steps) / (total_training_steps - warmup_steps))
+        progress = ((global_step - const_peak_steps) / (const_min_lr_steps - const_peak_steps)) # modified. to smoothen the curve original: progress = ((global_step - warmup_steps) / (total_training_steps - warmup_steps))
         lr = min_lr + (peak_lr - min_lr) * 0.5 * (
             1 + math.cos(math.pi * progress))
         return lr
-    # 3) constant minumum learning rate
+    # 4) constant minumum learning rate
     else:
         return min_lr
-
 
 BOOK_VERSION = True
 
@@ -100,8 +100,11 @@ def train_model(model, train_loader, val_loader, optimizer, device,
     
     total_steps = len_train_loader * args.n_epochs
     print(f'total_steps: {total_steps}')
-    warmup_steps = int(0.2 * total_steps) # 20% warmup
+    warmup_steps = int(0.02 * total_steps) # 2% warmup
     print(f' warmup_steps: {warmup_steps}')
+    
+    # constant peak (15% of global steps)
+    const_peak_steps = warmup_steps + int(.15 * max_global_steps)
 
     # modified. use constant min_lr for last 10% of training data
     const_min_lr_steps = int(.9 * total_steps)
@@ -147,7 +150,7 @@ def train_model(model, train_loader, val_loader, optimizer, device,
                 optimizer.zero_grad()
 
                 # modified. added constant minimum learning rate along with linear_warmup+cosine_decay
-                lr = get_lr(initial_lr, min_lr, peak_lr, global_step, warmup_steps, lr_increment, const_min_lr_steps)
+                lr = get_lr(initial_lr, min_lr, peak_lr, global_step, warmup_steps, const_peak_steps, lr_increment, const_min_lr_steps)
 
                 # Apply the calculated learning rate to the optimizer
                 for param_group in optimizer.param_groups:
