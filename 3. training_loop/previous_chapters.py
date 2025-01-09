@@ -35,6 +35,7 @@ def create_dataloader_v3(batch_size, shuffle=True, drop_last=True, num_workers=0
     * parameters: max_length and stride removed : they were set during preparing tokenized_datasets
     * parameter: context_length removed (as dataset is pre-tokenized)
     '''
+    print('downloading dataset...')
     # Download the whole dataset
     base_url = "https://huggingface.co/datasets/Aananda-giri/nepali_llm_datasets/resolve/main/pre_tokenized/"
     # data_files = {"train": base_url + "nepberta_" + str(context_length) + ".parquet"}

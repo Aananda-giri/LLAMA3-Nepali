@@ -120,6 +120,7 @@ def train_model(model, train_loader, val_loader, optimizer, device,
         print(f'push to hub once every {args.push_to_hub_hours} hours i.e. {push_to_hub_seconds} seconds..')
         for epoch in range(n_epochs):
             model.train()   # Training mode
+            print(f'skipping train_loader till index: {train_loader_resume_index}... ', end = '')
             for input_batch, target_batch in train_loader:
                 
                 global_step += 1
@@ -138,6 +139,7 @@ def train_model(model, train_loader, val_loader, optimizer, device,
                     # this code is supposed to runs only once (at the end of skipping dataloaders)
                     done_resume = True
                     global_step = previous_global_step
+                    print('done.')
                     print('\n' + '-'*70 + '\n')
                     time_elapsed = format_time_elapsed(start_time, time.time())
                     print(f"\n{'-'*70}\n resuming from global_step : {global_step} \n train_loader_index: {train_loader_index} \n len_train_loader: {len_train_loader} \n Time: {time_elapsed}", end = '\n' + '-'*70 + '\n')
@@ -217,7 +219,7 @@ def train_model(model, train_loader, val_loader, optimizer, device,
                 
                 # push latest checkpoint to hub (once every 11 hours)
                 time_elapsed = (time.time() - start_time)
-                if current_elapsed_hours > push_to_hub_seconds and not pushed_to_hub_once:
+                if push_to_hub_seconds > time_elapsed and not pushed_to_hub_once:
                     push_latest_checkpoint_to_hub()
                     pushed_to_hub_once = True
                     
