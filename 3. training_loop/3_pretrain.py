@@ -101,14 +101,15 @@ def train_model(model, train_loader, val_loader, optimizer, device,
     total_steps = len_train_loader * args.n_epochs
     print(f'total_steps: {total_steps}')
     warmup_steps = int(0.02 * total_steps) # 2% warmup
-    print(f' warmup_steps: {warmup_steps}')
+    print(f'warmup_steps: {warmup_steps}')
     
     # constant peak (15% of global steps)
-    const_peak_steps = warmup_steps + int(.15 * max_global_steps)
+    const_peak_steps = warmup_steps + int(.15 * total_steps)
+    print(f'const_peak_steps: {const_peak_steps}')
 
     # modified. use constant min_lr for last 10% of training data
     const_min_lr_steps = int(.9 * total_steps)
-    print(f' constant min_lr after: {const_min_lr_steps} steps')
+    print(f'constant min_lr after: {const_min_lr_steps} steps')
     
     
     # (calclulate initially) Calculate the learning rate increment during the warmup phase
