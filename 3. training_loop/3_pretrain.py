@@ -100,22 +100,21 @@ def train_model(model, train_loader, val_loader, optimizer, device,
     
     total_steps = len_train_loader * args.n_epochs
     print(f'total_steps: {total_steps}')
-    warmup_steps = int(0.02 * total_steps) # 2% warmup
+    warmup_steps = int(args.warmup_steps * total_steps) # 2% warmup
     print(f'warmup_steps: {warmup_steps}')
     
     # constant peak (15% of global steps)
-    const_peak_steps = warmup_steps + int(.15 * total_steps)
+    const_peak_steps = warmup_steps + int(args.cplr_steps * total_steps)
     print(f'const_peak_steps: {const_peak_steps}')
 
     # modified. use constant min_lr for last 10% of training data
-    const_min_lr_steps = int(.9 * total_steps)
+    const_min_lr_steps = int((1-args.min_lr_steps) * total_steps)
     print(f'constant min_lr after: {const_min_lr_steps} steps')
     
     
     # (calclulate initially) Calculate the learning rate increment during the warmup phase
     lr_increment = (peak_lr - initial_lr) / warmup_steps
     try:
-        
         evaluated_once = False  # modified. to evaluate the model at least once (at the start)
         done_resume = False # modified. to check if the resume script has been run once
         pushed_to_hub_once = False
@@ -200,7 +199,7 @@ def train_model(model, train_loader, val_loader, optimizer, device,
                 
                 # Save at every 10,000 steps
                 if global_step % args.save_ckpt_freq_steps == 0 and global_step != 0:
-                    delete_checkpoints_except_n_highest_steps(n=1)  # modified. to delete the previous steps checkpoint#
+                    delete_checkpoints_except_n_highest_steps(folder_path=args.output_dir, n=1)  # modified. to delete the previous steps checkpoint#
                     save_file_path = os.path.join(output_dir, f"model_pg_{global_step}_steps.pth")
                     torch.save({
                         "model_state_dict": model.state_dict(),
@@ -224,7 +223,7 @@ def train_model(model, train_loader, val_loader, optimizer, device,
                 # push latest checkpoint to hub (once every 11 hours)
                 time_elapsed = (time.time() - start_time)
                 if time_elapsed > push_to_hub_seconds and not pushed_to_hub_once:
-                    push_latest_checkpoint_to_hub()
+                    push_latest_checkpoint_to_hub(args.output_dir)
                     pushed_to_hub_once = True
                     
             # Save at the end of each epoch
@@ -287,8 +286,14 @@ if __name__ == "__main__":
                         help='Frequency of evaluations during training')
     parser.add_argument('--save_ckpt_freq', type=int, default=100_000,
                         help='Frequency of saving model checkpoints during training')
-    parser.add_argument('--peak_lr', type=float, default=1e-4,
+    parser.add_argument('--peak_lr', type=float, default=2e-4,
                         help='Learning rate for the optimizer') # this was originally set to 5e-4 in the book by mistake correction: 0.001
+    parser.add_argument('--warmup_steps', type=float, default=.02,
+                        help='percentage of training steps to be used for linear warmup') # this was originally set to 5e-4 in the book by mistake correction: 0.001
+    parser.add_argument('--cplr_steps', type=float, default=.15,
+                        help='constant peak learning rate steps') # this was originally set to 5e-4 in the book by mistake correction: 0.001
+    parser.add_argument('--min_lr_steps', type=float, default=.1,
+                        help='percentage of training steps to be used for minimum learning rate') # this was originally set to 5e-4 in the book by mistake correction: 0.001
     parser.add_argument('--initial_lr', type=float, default=1e-5,
                         help='Learning rate for the optimizer') # this was originally set to 5e-4 in the book by mistake correction: 0.001
     parser.add_argument('--min_lr', type=float, default=1e-5,

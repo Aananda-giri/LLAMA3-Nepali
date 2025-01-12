@@ -108,14 +108,14 @@ def format_time_elapsed(start_time, end_time):
     return ', '.join(elapsed_time)
 
 
-def push_latest_checkpoint_to_hub():
+def push_latest_checkpoint_to_hub(directory):
     print("-"*50, "\n\tpushing latest model checkpoint to hub\n", "-"*50)
 
     user_secrets = UserSecretsClient()
     hf_token = user_secrets.get_secret("HF_TOKEN")
 
     # path of latest model checkpoint
-    latest_model_checkpoint = get_max_global_step_file(directory='model_checkpoints')   # e.g. 'model_checkpoints/model_pg_20_steps.pth'
+    latest_model_checkpoint = get_max_global_step_file(directory=directory)   # e.g. 'model_checkpoints/model_pg_20_steps.pth'
 
     if latest_model_checkpoint:
         print(f'got checkpoint: {latest_model_checkpoint}')
