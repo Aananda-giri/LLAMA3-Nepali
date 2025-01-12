@@ -530,7 +530,7 @@ if __name__ == "__main__":
     previous_global_step = None
     # this should work for epochs but epochs take a long time to train (so were sabing for every 10,000 steps)
     # latest_model_checkpoint = get_max_epoch_file(directory='model_checkpoints')
-    latest_model_checkpoint = get_max_global_step_file(directory='model_checkpoints')
+    latest_model_checkpoint = get_max_global_step_file(directory=args.output_dir)
     
     # if args.load_model and os.path.exists(output_dir):
     print(f'\n\nargs.resume_from_previous_training: {args.resume_from_previous_training}\n\n')
