@@ -224,6 +224,8 @@ def train_model(model, train_loader, val_loader, optimizer, device,
                 time_elapsed = (time.time() - start_time)
                 if time_elapsed > push_to_hub_seconds and not pushed_to_hub_once:
                     push_latest_checkpoint_to_hub(args.output_dir)
+                    epochs_tensor = torch.linspace(0, args.n_epochs, len(train_losses))
+                    plot_losses(epochs_tensor, track_tokens_seen, train_losses, val_losses, output_dir)
                     pushed_to_hub_once = True
                     
             # Save at the end of each epoch
