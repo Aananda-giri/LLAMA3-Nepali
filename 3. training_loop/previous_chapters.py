@@ -27,7 +27,6 @@ from datasets import load_dataset
 # 1. Dataloader
 #####################################
 
-
 def create_dataloader_v3(batch_size, shuffle=True, drop_last=True, num_workers=0):
     '''
     modified.
@@ -39,10 +38,15 @@ def create_dataloader_v3(batch_size, shuffle=True, drop_last=True, num_workers=0
     # Download the whole dataset
     base_url = "https://huggingface.co/datasets/Aananda-giri/nepali_llm_datasets/resolve/main/pre_tokenized/"
     # data_files = {"train": base_url + "nepberta_" + str(context_length) + ".parquet"}
-    data_files = {
-        "train": base_url + "iriisnepal_u_nepberta_train_512.parquet",
-        "test": base_url + "iriisnepal_u_nepberta_test_512.parquet"
-        }
+    
+    # previous version: stride = .75*512, context_len.512
+    # data_files = {
+    #     "train": base_url + "iriisnepal_u_nepberta_train_512.parquet",
+    #     "test": base_url + "iriisnepal_u_nepberta_test_512.parquet"
+    #     }
+    
+    # context_len.512, stride=512
+    data_files={"train": base_url + "iriis_u_nepbert_512_512_train.parquet", "validation": base_url + "iriis_u_nepbert_512_512_test.parquet"}
     dataset = load_dataset("parquet", data_files=data_files, cache_dir='hf_cache', streaming=True)
     
     print(dataset)
@@ -84,7 +88,7 @@ def create_dataloader_v3(batch_size, shuffle=True, drop_last=True, num_workers=0
     )
 
     val_loader =  DataLoader(
-        dataset['test'],
+        dataset['validation'],
         batch_size=batch_size,
         shuffle=shuffle,
         drop_last=drop_last,
