@@ -190,7 +190,7 @@ def train_model(model, train_loader, val_loader, optimizer, device,
                     track_tokens_seen.append(tokens_seen)
                     # Print the current losses
                     time_elapsed = format_time_elapsed(start_time, time.time())
-                    print(f"Ep {epoch+1} (Iter {global_step:06d}): "
+                    print(f"Ep {epoch+1} (Iter {global_step:06d}/{total_steps}): "
                         f"Train loss {train_loss:.3f}, "
                         f"Val loss {val_loss:.3f}"
                         f" Time: {time_elapsed}"
@@ -308,7 +308,8 @@ if __name__ == "__main__":
                         help='whether or not to compile the model')
     parser.add_argument('--max_text_len', type=int, default=45000000,
                         help='testing different text sizes.')
-    
+    parser.add_argument('--rope_base', type=int, default=0,
+                        help='rope_base.')
     
     
     # modified. added resume_from_previous_training
@@ -320,6 +321,9 @@ if __name__ == "__main__":
                         help='how often to save the model checkpoint in steps')
     parser.add_argument('--context_length', type=int, default=1024,
                         help='context length (default: 1024)')
+    parser.add_argument('--num_parameters', type=int, default=200,
+                        help='number of model parameters: 200 or 500')
+    
 
     args = parser.parse_args()
     args.resume_from_previous_training = args.resume_from_previous_training.lower() == 'true'
@@ -376,19 +380,45 @@ if __name__ == "__main__":
             stride=LLAMA32_CONFIG["context_length"],
             num_workers=0
         )
-        
-    else:
-        # 
-        print(f'---------------------\nDEBUG MODE=False\n---------------------')
-        # Llama 3.2 200M
+    
+    elif args.num_parameters==500:
+        print(f'---------------------\nDEBUG MODE=False (500M model)\n---------------------')
+        # Llama 3.2 500M Scaled Version
+        LLAMA32_CONFIG = {
+            "vocab_size": 50_000,       # Vocabulary size
+            "context_length": 512,     # Context length
+            "emb_dim": 1536,            # Increased embedding dimension
+            "n_heads": 24,              # Adjusted number of attention heads
+            "n_layers": 12,             # Increased number of layers
+            "hidden_dim": 6144,         # Adjusted intermediate dimension
+            "n_kv_groups": 6,           # Reduced key-value groups
+            "rope_base": 500_000.0,      # Reduced RoPE base for scaled-down context
+            "dtype": torch.bfloat16,    # Lower-precision dtype
+            "rope_freq": {              # RoPE frequency scaling
+                "factor": 32.0,
+                "low_freq_factor": 1.0,
+                "high_freq_factor": 4.0,
+                "original_context_length": 8192,
+            }
+        }
+
+        # Initialize new data loader
+        train_loader, val_loader = create_dataloaders(
+            # train_ratio=0.9,
+            batch_size=args.batch_size,
+            num_workers=0 
+        )
+    elif args.num_parameters == 300:
+        print(f'---------------------\nDEBUG MODE=False (300M model)\n---------------------')
+        # Llama 3.2 ~300M Scaled Version
         LLAMA32_CONFIG = {
             "vocab_size": 50006,       # <len(tokenizer.tokenizer)=50006> 128_256 reduced vocabulary size
             "context_length": 512,      # 131_072 reduced Context length (unrelated to model size but higheer context length consumes more RAM)
-            "emb_dim": 1024,            # 2048 reduced Embedding dimension
-            "n_heads": 16,              # 32 reduced Number of attention heads
-            "n_layers": 8,             # 16 reduced Number of layers
-            "hidden_dim": 4096,         # 8192 Size of the intermediate dimension in FeedForward
-            "n_kv_groups": 8,           # 8 Key-Value groups for grouped-query attention
+            "emb_dim": 1320,            # 2048 reduced Embedding dimension
+            "n_heads": 20,              # 32 reduced Number of attention heads
+            "n_layers": 10,             # 16 reduced Number of layers
+            "hidden_dim": 5280,         # 8192 Size of the intermediate dimension in FeedForward
+            "n_kv_groups": 5,           # 8 Key-Value groups for grouped-query attention
             "rope_base": 500_000.0,     # 500_000 The base in RoPE's "theta"
             "dtype": torch.bfloat16,    # Lower-precision dtype to reduce memory usage
             "rope_freq": {              # RoPE frequency scaling
@@ -405,7 +435,34 @@ if __name__ == "__main__":
             batch_size=args.batch_size,
             num_workers=0 
         )
-    
+    else:
+        print(f'---------------------\nDEBUG MODE=False (200M model)\n---------------------')
+        # default : Llama 3.2 200M
+        LLAMA32_CONFIG = {
+            "vocab_size": 512,
+            "context_length": 512,      # 131_072 reduced Context length (unrelated to model size but higheer context length consumes more RAM)
+            "emb_dim": 1152,
+            "n_heads": 16,
+            "n_layers": 9,
+            "hidden_dim": 4608,
+            "n_kv_groups": 4,
+            "rope_base": 500_000.0,     # 500_000 The base in RoPE"s "theta"
+            "dtype": torch.bfloat16,    # Lower-precision dtype to reduce memory usage
+            "rope_freq": {              # RoPE frequency scaling
+                "factor": 32.0,
+                "low_freq_factor": 1.0,
+                "high_freq_factor": 4.0,
+                "original_context_length": 8192,
+            }
+        }
+
+        # Initialize new data loader
+        train_loader, val_loader = create_dataloaders(
+            # train_ratio=0.9,
+            batch_size=args.batch_size,
+            num_workers=0 
+        )
+    print(LLAMA32_CONFIG)
     LLAMA_SIZE_STR = "2M" if args.debug else "200M"
     
     def set_loader_lengths(debug, train_loader=None, val_loader=None):
@@ -434,24 +491,33 @@ if __name__ == "__main__":
     new_context_length = LLAMA32_CONFIG["context_length"]  # 512 our new context length
 
     def rescale_theta(theta_old, context_length_old, context_length_new):
-        # # linear scaling by sebastian
-        # scaling_factor = context_length_new / context_length_old
-        
-        '''
-            Using square root scaling (instead of linear scaling as done by sebastian),
-            because linear scaling is resulting in very small theta value.
-            which is slowing the training (slower decrease in loss)
-            might be because of the large difference in context length (137_072 vs 512)
-        '''
-        scaling_factor = math.sqrt(context_length_new/context_length_old)
+        # original linear scaling
+        scaling_factor = context_length_new / context_length_old
         theta_new = theta_old * scaling_factor
         return theta_new
 
-    LLAMA32_CONFIG["rope_base"] = rescale_theta(
-        LLAMA32_CONFIG["rope_base"],
-        old_context_length,
-        new_context_length
-    )
+    # def rescale_theta(theta_old, context_length_old, context_length_new):
+    #     # # linear scaling by sebastian
+    #     # scaling_factor = context_length_new / context_length_old
+        
+    #     '''
+    #         Using square root scaling (instead of linear scaling as done by sebastian),
+    #         because linear scaling is resulting in very small theta value.
+    #         which is slowing the training (slower decrease in loss)
+    #         might be because of the large difference in context length (137_072 vs 512)
+    #     '''
+    #     scaling_factor = math.sqrt(context_length_new/context_length_old)
+    #     theta_new = theta_old * scaling_factor
+    #     return theta_new
+
+    if args.rope_base and args.rope_base != 0:
+        LLAMA32_CONFIG["rope_base"] = args.rope_base
+    else:
+        LLAMA32_CONFIG["rope_base"] = rescale_theta(
+            LLAMA32_CONFIG["rope_base"],
+            old_context_length,
+            new_context_length
+        )
 
     print("New RoPE theta (i.e. LLAMA32_CONFIG[\"rope_base\"]):", LLAMA32_CONFIG["rope_base"])
     
