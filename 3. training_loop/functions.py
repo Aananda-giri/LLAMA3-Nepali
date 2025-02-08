@@ -62,22 +62,31 @@ def delete_checkpoints_except_n_highest_steps(folder_path="model_checkpoints", n
     
 #     return os.path.join(directory, max_epoch_file) if max_epoch_file else None
 
-def get_max_global_step_file(directory='model_checkpoints'):
+def get_max_global_step_file(directory='model_checkpoints', files_list = None):
+    
+    if files_list:
+        directory = ''
+    else:
+        assert os.path.exists(directory)
+        files_list = os.listdir(directory)
+    # print(files_list)
+    
     max_step = 0
     max_steps_file = None
-
-    if os.path.exists(directory):
-        for filename in os.listdir(directory):
-            # format: model_pg_{global_step}_steps.pth
-            if filename.startswith("model_pg_") and filename.endswith("_steps.pth"):
-                try:
-                    step = int(filename.split("model_pg_")[-1].split("_steps.pth")[0])
-                    if step > max_step:
-                        max_step = step
-                        max_steps_file = filename
-                except Exception as Ex:
-                    print(f'file: {filename} : {Ex}')
     
+    
+    for filename in files_list:
+        # format: model_pg_{global_step}_steps.pth
+        # if filename.startswith("model_pg_") and filename.endswith("_steps.pth"):
+        if "model_pg_" in filename and "_steps.pth" in filename:
+            try:
+                step = int(filename.split("model_pg_")[-1].split("_steps.pth")[0])
+                if step > max_step:
+                    max_step = step
+                    max_steps_file = filename
+            except Exception as Ex:
+                print(f'file: {filename} : {Ex}')
+    print(max_steps_file)
     return os.path.join(directory, max_steps_file) if max_steps_file else None
 
 from datetime import timedelta
