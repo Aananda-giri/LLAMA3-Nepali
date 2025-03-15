@@ -1,7 +1,45 @@
 # app.py (second app by claude)
 import gradio as gr
+import torch
 
 # ==================================================================================-
+# inference code part-1
+# -------------------------------------------------
+# 1. Download the model weights (from huggingface)
+# -------------------------------------------------
+from huggingface_hub import hf_hub_download
+hf_hub_download(repo_id="Aananda-giri/LLAMA3-Nepali", filename="parameters_300m/model_pg_398000_steps.pth", local_dir="./")
+
+# ----------------------
+# 2. Load The tokenizer
+# ----------------------
+from transformers import PreTrainedTokenizerFast
+
+# Load the tokenizer
+tokenizer = PreTrainedTokenizerFast.from_pretrained("Aananda-giri/LLAMA3-Nepali")
+tokenizer.save_pretrained("NepaliBPE")
+
+
+# Llama 3.2 ~300M Scaled Version
+LLAMA32_CONFIG = {
+    "vocab_size": 50006,       # <len(tokenizer.tokenizer)=50006> 128_256 reduced vocabulary size
+    "context_length": 512,      # 131_072 reduced Context length (unrelated to model size but higheer context length consumes more RAM)
+    "emb_dim": 1320,            # 2048 reduced Embedding dimension
+    "n_heads": 20,              # 32 reduced Number of attention heads
+    "n_layers": 10,             # 16 reduced Number of layers
+    "hidden_dim": 5280,         # 8192 Size of the intermediate dimension in FeedForward
+    "n_kv_groups": 5,           # 8 Key-Value groups for grouped-query attention
+    "rope_base": 500_000.0,     # 500_000 The base in RoPE's "theta"
+    "dtype": torch.bfloat16,    # Lower-precision dtype to reduce memory usage
+    "rope_freq": {              # RoPE frequency scaling
+        "factor": 32.0,
+        "low_freq_factor": 1.0,
+        "high_freq_factor": 4.0,
+        "original_context_length": 8192,
+    }
+}
+
+
 # ==================================================================================-
 # ==================================================================================-
 # ==================================================================================-
@@ -24,7 +62,6 @@ import json
 from transformers import PreTrainedTokenizerFast
 
 
-import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 import matplotlib.pyplot as plt
@@ -434,8 +471,9 @@ class ChatFormat:
     def decode(self, token_ids):
         return self.tokenizer.decode(token_ids)
 
-# tokenizer = Tokenizer("tokenizer.json")
-# chat_tokenizer = ChatFormat(tokenizer)
+
+_tokenizer = Tokenizer("NepaliBPE/tokenizer.json")
+chat_tokenizer = ChatFormat(_tokenizer)
 
 # text = "नेपाल विद्युत प्राधिकरणका कार्यकारी निर्देशक कुलमान घिसिङले माथिल्लो अरुण जलविद्युत आयोजना विश्व बैंक र एडीबीबाट वित्तीय व्यवस्थापन नभए नेपाली जनताको लगानीमा बनाउने तयारी रहेको बताएका छन् ।"
 # # normal tokenizer
@@ -870,40 +908,7 @@ def generate_chat_optimized(
 #     generate_and_print_sample
 # )
 
-# -------------------------------------------------
-# 1. Download the model weights (from huggingface)
-# -------------------------------------------------
-from huggingface_hub import hf_hub_download
-hf_hub_download(repo_id="Aananda-giri/LLAMA3-Nepali", filename="parameters_300m/model_pg_398000_steps.pth", local_dir="./")
 
-# ----------------------
-# 2. Load The tokenizer
-# ----------------------
-from transformers import PreTrainedTokenizerFast
-
-# Load the tokenizer
-tokenizer = PreTrainedTokenizerFast.from_pretrained("Aananda-giri/LLAMA3-Nepali")
-tokenizer.save_pretrained("NepaliBPE")
-
-
-# Llama 3.2 ~300M Scaled Version
-LLAMA32_CONFIG = {
-    "vocab_size": 50006,       # <len(tokenizer.tokenizer)=50006> 128_256 reduced vocabulary size
-    "context_length": 512,      # 131_072 reduced Context length (unrelated to model size but higheer context length consumes more RAM)
-    "emb_dim": 1320,            # 2048 reduced Embedding dimension
-    "n_heads": 20,              # 32 reduced Number of attention heads
-    "n_layers": 10,             # 16 reduced Number of layers
-    "hidden_dim": 5280,         # 8192 Size of the intermediate dimension in FeedForward
-    "n_kv_groups": 5,           # 8 Key-Value groups for grouped-query attention
-    "rope_base": 500_000.0,     # 500_000 The base in RoPE's "theta"
-    "dtype": torch.bfloat16,    # Lower-precision dtype to reduce memory usage
-    "rope_freq": {              # RoPE frequency scaling
-        "factor": 32.0,
-        "low_freq_factor": 1.0,
-        "high_freq_factor": 4.0,
-        "original_context_length": 8192,
-    }
-}
 
 old_context_length = 131_072    # original context length of llama3.2 model
 new_context_length = LLAMA32_CONFIG["context_length"]  # 512 our new context length
@@ -1015,20 +1020,6 @@ model.load_state_dict(checkpoint["model_state_dict"])
 # =============================================
 # =============================================
 # =============================================
-prompt,
-tokenizer,
-chat_tokenizer,
-model,
-device=None,
-max_new_tokens=150,
-context_length=None,
-temperature=0.7,
-top_k=50,
-top_p=0.9,
-repetition_penalty=1.2,
-clean_the_text=False,
-print_output=True
-
 def generate_text(prompt, max_new_tokens, top_k, top_p, temperature, repetition_penalty, penalize_len_below):
     return generate_chat_optimized(
         model=model,
@@ -1036,7 +1027,7 @@ def generate_text(prompt, max_new_tokens, top_k, top_p, temperature, repetition_
         tokenizer=tokenizer,
         chat_tokenizer=chat_tokenizer,
         max_new_tokens=max_new_tokens,
-        context_size=context_length,
+        context_size=LLAMA32_CONFIG['context_length'],
         temperature=temperature,
         top_k=top_k,
         top_p=top_p,
@@ -1044,8 +1035,7 @@ def generate_text(prompt, max_new_tokens, top_k, top_p, temperature, repetition_
         repetition_penalty=repetition_penalty,
         penalize_len_below=penalize_len_below,
         device=device,
-        batch_size=1,  # Added parameter
-        clean_the_text=clean_the_text
+        batch_size=1
     )
 
 
@@ -1061,9 +1051,9 @@ css = """
 """
 
 # Create Gradio interface
-with gr.Blocks(title="Nepali GPT-2 Text Generator", css=css) as interface:
-    gr.Markdown("# Nepali GPT-2 Text Generator")
-    gr.Markdown("Enter Nepali (नेपाली) text to generate content using the custom GPT2-Nepali model.")
+with gr.Blocks(title="LLAMA3_Nepali_318M Text Generator", css=css) as interface:
+    gr.Markdown("# LLAMA3_Nepali_318M Text Generator")
+    gr.Markdown("Enter Nepali (नेपाली) text to generate content using the custom LLAMA3_Nepali_318M model.")
     
     with gr.Row():
         with gr.Column():
@@ -1072,7 +1062,7 @@ with gr.Blocks(title="Nepali GPT-2 Text Generator", css=css) as interface:
                 placeholder="यहाँ नेपाली मा इन्पुट दिनु होस् ... (please Enter Nepali text here...)" #,
                 # value="रामले भात"
        )
-            max_tokens = gr.Slider(minimum=1, maximum=512, value=50, step=1, label="Max New Tokens")
+            max_tokens = gr.Slider(minimum=1, maximum=512, value=25, step=1, label="Max New Tokens")
             
             with gr.Row():
                 with gr.Column():
@@ -1091,11 +1081,11 @@ with gr.Blocks(title="Nepali GPT-2 Text Generator", css=css) as interface:
     # Add examples if you have any
     gr.Examples(
         examples=[
-            ["रामले भात", 50, 50, 0, 0.7, 1.2, 50],
-            ["नेपाल एउटा", 100, 0, 0.9, 0.8, 1.2, 100],
-            ["नेपाल का वर्तमान प्रधानमन्त्री ", 100, 0, 0.9, 0.8, 1.2, 100],
-            ["भारतीय  प्रधानमन्त्री  ", 100, 0, 0.9, 0.8, 1.2, 100],
-            ["अमिरिकी रास्ट्रपति डोनाल्ड", 100, 0, 0.9, 0.8, 1.2, 100],
+            ["रामले भात", 25, 10, 0, 0.7, 1.2, 15],
+            ["नेपाल एउटा", 25, 10, 0.9, 0.5, 1.2, 10],
+            ["नेपाल का वर्तमान प्रधानमन्त्री ", 25, 10, 0.4, 0.8, 1.2, 10],
+            ["भारतीय  प्रधानमन्त्री  ", 25, 10, 0.9, 0.5, 1.2, 15],
+            ["अमिरिकी रास्ट्रपति डोनाल्ड", 25, 10, 0.9, 0.6, 1.2, 15],
         ],
         inputs=[prompt, max_tokens, top_k, top_p, temperature, repetition_penalty, min_length],
         outputs=output,
