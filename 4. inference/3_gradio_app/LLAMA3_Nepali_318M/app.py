@@ -718,7 +718,7 @@ def plot_losses(epochs_seen, tokens_seen, train_losses, val_losses, output_dir):
 # --------------------------------------------------------------------------------
 #     -------------------------- New Chat function ---------------------
 # --------------------------------------------------------------------------------
-def generate_chat(
+def generate_chat_optimized(
     model,
     prompt,
     tokenizer,
@@ -727,189 +727,126 @@ def generate_chat(
     context_size,
     temperature=0.7,
     top_k=50,
-    top_p=None,  # Nucleus sampling
+    top_p=None,
     eos_id=None,
     repetition_penalty=1.2,
     penalize_len_below=50,
-    device=None
+    device=None,
+    batch_size=1,  # Added parameter
+    clean_the_text=True
 ):
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     idx = text_to_token_ids(prompt, chat_tokenizer).to(device)
     
-    if not eos_id and "<|endoftext|>" in tokenizer.get_vocab():
-        encoded_endoftext = tokenizer.encode("<|endoftext|>")
-        eos_id = encoded_endoftext[0] if encoded_endoftext else None
-    elif not eos_id and "<|eot_id|>" in tokenizer.get_vocab():
-        encoded_endoftext = tokenizer.encode("<|eot_id|>")
-        eos_id = encoded_endoftext[0] if encoded_endoftext else None
-
+    # Find EOS token once instead of checking every time
+    if not eos_id:
+        if "<|endoftext|>" in tokenizer.get_vocab():
+            encoded_endoftext = tokenizer.encode("<|endoftext|>")
+            eos_id = encoded_endoftext[0] if encoded_endoftext else None
+        elif "<|eot_id|>" in tokenizer.get_vocab():
+            encoded_endoftext = tokenizer.encode("<|eot_id|>")
+            eos_id = encoded_endoftext[0] if encoded_endoftext else None
+    
+    # Pre-compute token frequencies for the initial context
     token_freq = {}
-
-    for step in range(max_new_tokens):
-        idx_cond = idx[:, -context_size:]
-        with torch.no_grad():
+    for token_id in idx[0].tolist():
+        if token_id in token_freq:
+            token_freq[token_id] += 1
+        else:
+            token_freq[token_id] = 1
+    
+    # Process tokens in batches for efficiency
+    with torch.no_grad():  # Move this outside the loop
+        for step in range(0, max_new_tokens, batch_size):
+            batch_end = min(step + batch_size, max_new_tokens)
+            current_batch_size = batch_end - step
+            
+            idx_cond = idx[:, -context_size:]
             logits = model(idx_cond)
-        logits = logits[:, -1, :]
-
-        # Apply repetition penalty
-        for token_id in idx[0].tolist():
-            if token_id in token_freq:
-                token_freq[token_id] += 1
-                logits[0, token_id] /= repetition_penalty
-            else:
-                token_freq[token_id] = 1
-        
-        # Penalize EOT token for shorter sequences
-        if eos_id is not None and step < penalize_len_below:
-            penalty_factor = 1.0 + (penalize_len_below - step) / penalize_len_below
-            logits[0, eos_id] /= penalty_factor
-
-        # Apply temperature scaling
-        if temperature > 0.0:
-            logits = logits / temperature
-
-        # Convert logits to probabilities
-        probs = torch.softmax(logits, dim=-1)
-
-        # Apply top-p (nucleus) sampling if specified
-        if top_p and top_p > 0.0:
-            sorted_probs, sorted_indices = torch.sort(probs, descending=True)
-            cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+            logits = logits[:, -1, :]
             
-            # Remove tokens with cumulative probability above the threshold
-            sorted_indices_to_remove = cumulative_probs > top_p
-            # Shift the indices to the right to keep also the first token above the threshold
-            sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
-            sorted_indices_to_remove[..., 0] = 0
-
-            # Create a mask for indices to remove
-            indices_to_remove = sorted_indices_to_remove.scatter(dim=-1, index=sorted_indices, src=sorted_indices_to_remove)
-            probs = probs.masked_fill(indices_to_remove, 0.0)
+            # Apply repetition penalty once for the batch
+            for token_id in idx[0].tolist()[-current_batch_size:]:
+                if token_id in token_freq:
+                    token_freq[token_id] += 1
+                    logits[0, token_id] /= repetition_penalty
+                else:
+                    token_freq[token_id] = 1
             
-            # Renormalize probabilities
-            probs = probs / (probs.sum(dim=-1, keepdim=True) + 1e-8)  # Avoid division by zero
-
-        # If top_p is None or 0, apply top-k sampling
-        elif top_k and top_k > 0:
-            top_probs, top_indices = torch.topk(probs, min(top_k, probs.size(-1)))
-            probs = torch.zeros_like(probs).scatter_(-1, top_indices, top_probs)
-            # Renormalize probabilities
-            probs = probs / (probs.sum(dim=-1, keepdim=True) + 1e-8)  # Avoid division by zero
-
-        # Sample from the filtered distribution
-        if temperature > 0.0:
-            idx_next = torch.multinomial(probs, num_samples=1)
-        else:
-            idx_next = torch.argmax(probs, dim=-1, keepdim=True)
-
-        # Add the next token to the sequence
-        idx = torch.cat((idx, idx_next), dim=1)
-        
-        # Check for end of sequence token
-        if idx_next.item() == eos_id:
-            break
-
-    return idx
-
-def clean_chat_output(text):
-    """Clean up the generated text to remove repetition and artifacts."""
-    # Remove repetitive patterns (like the example with repeated "म त यो देशको प्रधानमन्त्री हुँ")
-    import re
+            # Process each token in the batch
+            for i in range(current_batch_size):
+                current_step = step + i
+                
+                # Penalize EOT token for shorter sequences
+                current_logits = logits.clone()  # Work with a copy
+                if eos_id is not None and current_step < penalize_len_below:
+                    penalty_factor = 1.0 + (penalize_len_below - current_step) / penalize_len_below
+                    current_logits[0, eos_id] /= penalty_factor
+                
+                # Apply temperature scaling
+                if temperature > 0.0:
+                    current_logits = current_logits / temperature
+                
+                # Convert logits to probabilities
+                probs = torch.softmax(current_logits, dim=-1)
+                
+                # Apply sampling strategies
+                if top_p and top_p > 0.0:
+                    # Nucleus sampling implementation
+                    sorted_probs, sorted_indices = torch.sort(probs, descending=True)
+                    cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+                    
+                    sorted_indices_to_remove = cumulative_probs > top_p
+                    sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+                    sorted_indices_to_remove[..., 0] = 0
+                    
+                    indices_to_remove = sorted_indices_to_remove.scatter(dim=-1, index=sorted_indices, src=sorted_indices_to_remove)
+                    probs = probs.masked_fill(indices_to_remove, 0.0)
+                    probs = probs / (probs.sum(dim=-1, keepdim=True) + 1e-8)
+                
+                elif top_k and top_k > 0:
+                    # Top-k sampling implementation
+                    top_probs, top_indices = torch.topk(probs, min(top_k, probs.size(-1)))
+                    probs = torch.zeros_like(probs).scatter_(-1, top_indices, top_probs)
+                    probs = probs / (probs.sum(dim=-1, keepdim=True) + 1e-8)
+                
+                # Sample from the filtered distribution
+                if temperature > 0.0:
+                    idx_next = torch.multinomial(probs, num_samples=1)
+                else:
+                    idx_next = torch.argmax(probs, dim=-1, keepdim=True)
+                
+                # Add the next token to the sequence
+                idx = torch.cat((idx, idx_next), dim=1)
+                
+                # Check for end of sequence token and break if needed
+                if idx_next.item() == eos_id:
+                    output_text = token_ids_to_text(idx, tokenizer)
+                    if clean_the_text:
+                        # Clean the output 
+                        # cleaned_text = clean_chat_output(output_text)
+                        cleaned_text = clean_text(output_text)
+                        if '<|eot_id|>' in cleaned_text:
+                            cleaned_text = cleaned_text.replace('<|eot_id|>','')
+                        # print("Generated text:\n", cleaned_text)
+                    
+                        return cleaned_text
+                    return output_text
     
-    # Handle endoftext markers
-    text = re.sub(r'<\|endoftext\|>.*$', '', text, flags=re.DOTALL)
-    text = re.sub(r'<\|eot_id\|>.*$', '', text, flags=re.DOTALL)
-    
-    # Remove excessive repetition (3 or more identical sentences)
-    lines = text.split('\n')
-    cleaned_lines = []
-    prev_line = None
-    repetition_count = 0
-    
-    for line in lines:
-        if line == prev_line:
-            repetition_count += 1
-            if repetition_count > 2:  # Skip if this is the 3rd or more repetition
-                continue
-        else:
-            repetition_count = 0
-        
-        cleaned_lines.append(line)
-        prev_line = line
-    
-    text = '\n'.join(cleaned_lines)
-    
-    # Also clean repetitive phrases within a single line
-    words = text.split()
-    cleaned_words = []
-    repetition_window = []
-    
-    for word in words:
-        if len(repetition_window) >= 3 and all(w == word for w in repetition_window[-3:]):
-            continue  # Skip this word if the last 3 words were identical to it
-        cleaned_words.append(word)
-        repetition_window.append(word)
-        if len(repetition_window) > 10:  # Keep a limited window
-            repetition_window.pop(0)
-    
-    return ' '.join(cleaned_words).strip()
-
-def generate_and_print_chat(
-    prompt,
-    tokenizer,
-    chat_tokenizer,
-    model,
-    device=None,
-    max_new_tokens=150,
-    context_length=None,
-    temperature=0.7,
-    top_k=50,
-    top_p=0.9,
-    repetition_penalty=1.2,
-    clean_the_text=False,
-    print_output=True
-):
-    if device is None:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    if context_length is None:
-        # Try to get from model config or use default
-        context_length = getattr(model, "context_length", 2048)
-    
-    # Generate tokens
-    token_ids = generate_chat(
-        model=model,
-        prompt=prompt,
-        tokenizer=tokenizer,
-        chat_tokenizer=chat_tokenizer,
-        max_new_tokens=max_new_tokens,
-        context_size=context_length,
-        temperature=temperature,
-        top_k=top_k,
-        top_p=top_p,
-        repetition_penalty=repetition_penalty,
-        device=device
-    )
-
-    # Convert tokens to text
-    output_text = token_ids_to_text(token_ids, tokenizer)
-    
+    # Not end of text token. terminate early since it exceeds max_new_tokens
+    output_text = token_ids_to_text(idx, tokenizer)
     if clean_the_text:
         # Clean the output 
         # cleaned_text = clean_chat_output(output_text)
         cleaned_text = clean_text(output_text)
         if '<|eot_id|>' in cleaned_text:
             cleaned_text = cleaned_text.replace('<|eot_id|>','')
-        print("Generated text:\n", cleaned_text)
+        # print("Generated text:\n", cleaned_text)
     
         return cleaned_text
-    else:
-        print("Generated text:\n", output_text)
-    
-        return output_text
-
+    return output_text
 # ==================================================================================-
 # ==================================================================================-
 # ==================================================================================-
@@ -1052,7 +989,7 @@ print(f'device: {device}')
 
 latest_model_checkpoint = "parameters_300m/model_pg_398000_steps.pth"
 
-checkpoint = torch.load(latest_model_checkpoint, weights_only=False)
+checkpoint = torch.load(latest_model_checkpoint, map_location=device, weights_only=False)
 
 # modified (added model loading code)
 model.load_state_dict(checkpoint["model_state_dict"])
@@ -1093,19 +1030,22 @@ clean_the_text=False,
 print_output=True
 
 def generate_text(prompt, max_new_tokens, top_k, top_p, temperature, repetition_penalty, penalize_len_below):
-    
-    return generate_and_print_chat(
+    return generate_chat_optimized(
+        model=model,
         prompt=prompt,
         tokenizer=tokenizer,
         chat_tokenizer=chat_tokenizer,
-        model=model,
-        device=device,
         max_new_tokens=max_new_tokens,
+        context_size=context_length,
+        temperature=temperature,
         top_k=top_k,
         top_p=top_p,
-        temperature=temperature,
+        eos_id=None,
         repetition_penalty=repetition_penalty,
-        penalize_len_below=penalize_len_below
+        penalize_len_below=penalize_len_below,
+        device=device,
+        batch_size=1,  # Added parameter
+        clean_the_text=clean_the_text
     )
 
 
@@ -1136,13 +1076,13 @@ with gr.Blocks(title="Nepali GPT-2 Text Generator", css=css) as interface:
             
             with gr.Row():
                 with gr.Column():
-                    temperature = gr.Slider(minimum=0.1, maximum=2.0, value=0.7, step=0.1, label="Temperature")
+                    temperature = gr.Slider(minimum=0.1, maximum=2.0, value=0.3, step=0.1, label="Temperature")
                     repetition_penalty = gr.Slider(minimum=1.0, maximum=2.0, value=1.2, step=0.1, label="Repetition Penalty")
                 with gr.Column():
-                    top_k = gr.Slider(minimum=0, maximum=100, value=50, step=1, label="Top K (set to 0 to use Top P)")
+                    top_k = gr.Slider(minimum=0, maximum=100, value=5, step=1, label="Top K (set to 0 to use Top P)")
                     top_p = gr.Slider(minimum=0, maximum=1.0, value=0.9, step=0.05, label="Top P (set above 0 to use instead of Top K)")
             
-            min_length = gr.Slider(minimum=1, maximum=200, value=50, step=1, label="Minimum Length Penalty")
+            min_length = gr.Slider(minimum=1, maximum=200, value=10, step=1, label="Minimum Length Penalty")
             generate_btn = gr.Button("Generate Text")
         
         with gr.Column():

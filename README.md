@@ -89,7 +89,7 @@ print(f'device: {device}')
 
 # Load checkpoint
 latest_model_checkpoint = "parameters_300m/model_pg_398000_steps.pth"
-checkpoint = torch.load(latest_model_checkpoint, weights_only=False)
+checkpoint = torch.load(latest_model_checkpoint, map_location=device, weights_only=False)
 model.load_state_dict(checkpoint["model_state_dict"])
 ```
 
@@ -108,24 +108,28 @@ generate_and_print_sample(
 
 #### Advanced Text Generation
 ```python
-from previous_chapters import generate_and_print_chat
+from previous_chapters import generate_chat_optimized
+import time
 
-generated_text = generate_and_print_chat(
+start_time = time.time()
+output_text = generate_chat_optimized(
     prompt="रामले भात",
     tokenizer=tokenizer,
     chat_tokenizer=chat_tokenizer,
     model=model,
+    max_new_tokens=20,
+    context_size=512,
     device=device,
-    max_new_tokens=150,
-    context_length=None,
-    temperature=0.1,
-    top_k=50,
-    top_p=0.9,
+    temperature=0.3,
+    top_k=5,
+    top_p=None,
+    eos_id=None,
     repetition_penalty=1.2,
-    clean_the_text=True
+    penalize_len_below=10,
+    batch_size=1  # Added parameter
 )
 
-print("Generated text:\n", generated_text)
+print(f"time:{time.time() - start_time}\n output_text: {output_text}")
 ```
 
 ---
