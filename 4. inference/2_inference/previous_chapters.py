@@ -889,7 +889,8 @@ def generate_and_print_chat(
         # Clean the output 
         # cleaned_text = clean_chat_output(output_text)
         cleaned_text = clean_text(output_text)
-    
+        if '<|eot_id|>' in cleaned_text:
+            cleaned_text = cleaned_text.replace('<|eot_id|>','')
         print("Generated text:\n", cleaned_text)
     
         return cleaned_text
