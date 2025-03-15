@@ -454,11 +454,11 @@ def token_ids_to_text(token_ids, tokenizer):
     return tokenizer.decode(flat.tolist())
 
 
-def generate(model, idx, max_new_tokens, context_size, temperature=0.0, top_k=None, eos_id=None):
+def generate(model, idx, max_new_tokens, context_length, temperature=0.0, top_k=None, eos_id=None):
 
     # For-loop is the same as before: Get logits, and only focus on last time step
     for _ in range(max_new_tokens):
-        idx_cond = idx[:, -context_size:]
+        idx_cond = idx[:, -context_length:]
         with torch.no_grad():
             logits = model(idx_cond)
         logits = logits[:, -1, :]
@@ -498,16 +498,28 @@ def generate_and_print_sample(PROMPT, tokenizer, chat_tokenizer, model, device, 
     # PROMPT="रामले भात"
     torch.manual_seed(123)
 
-    token_ids = generate(
+    # token_ids = generate(
+    #     model=model,
+    #     idx=text_to_token_ids(PROMPT, chat_tokenizer).to(device),
+    #     max_new_tokens=150,
+    #     context_length=context_length,
+    #     temperature=0.5,
+    #     top_k=1,
+    #     eos_id=tokenizer.eos_token_id
+    # )
+
+    # output_text = token_ids_to_text(token_ids, tokenizer)
+    
+    
+    # We have re-defined generate function below.
+    output_text = generate(
         model=model,
-        idx=text_to_token_ids(PROMPT, chat_tokenizer).to(device),
+        prompt=PROMPT,
+        tokenizer=tokenizer,
         max_new_tokens=150,
-        context_size=context_length,
-        top_k=1,
-        temperature=0.
+        
     )
 
-    output_text = token_ids_to_text(token_ids, tokenizer)
     
     print("Output text:\n", clean_text(output_text))
 
@@ -529,7 +541,7 @@ def generate_and_print_sample(PROMPT, tokenizer, chat_tokenizer, model, device, 
 # output_text = token_ids_to_text(token_ids, tokenizer)
 # -------------------------------------------------------------
 
-def clean_text(text, header_end="assistant<|end_header_id|>\n\n"):
+def clean_text(text, header_end="प्रयोगकर्ता <|end_header_id|>\n\n"):
     # Find the index of the first occurrence of "<|end_header_id|>"
     index = text.find(header_end)
 
@@ -583,26 +595,6 @@ def evaluate_model(model, train_loader, val_loader, device, eval_iter, len_train
     model.train()
     return train_loss, val_loss
 
-
-def generate_and_print_sample(PROMPT, tokenizer, chat_tokenizer, model, device, context_length):
-    
-    # PROMPT = "What do llamas eat?"
-    # PROMPT="रामले भात"
-    torch.manual_seed(123)
-
-    token_ids = generate(
-        model=model,
-        idx=text_to_token_ids(PROMPT, chat_tokenizer).to(device),
-        max_new_tokens=150,
-        context_size=context_length,
-        top_k=1,
-        temperature=0.
-    )
-
-    output_text = token_ids_to_text(token_ids, tokenizer)
-    
-    print("Output text:\n", clean_text(output_text))
-
 def generate(
     model,
     prompt,
@@ -613,9 +605,10 @@ def generate(
     top_p=None,  # New parameter for nucleus sampling
     eos_id=None,
     repetition_penalty=1.2,
-    penalize_len_below=50
+    penalize_len_below=50,
+    context_size = 512
 ):
-    context_size = GPT_CONFIG_124M['context_length']
+    # context_size = GPT_CONFIG_124M['context_length']
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     idx = text_to_token_ids(prompt, tokenizer).to(device)
@@ -864,7 +857,8 @@ def generate_and_print_chat(
     top_k=50,
     top_p=0.9,
     repetition_penalty=1.2,
-    clean_text=False
+    clean_the_text=False,
+    print_output=True
 ):
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -891,9 +885,10 @@ def generate_and_print_chat(
     # Convert tokens to text
     output_text = token_ids_to_text(token_ids, tokenizer)
     
-    if clean_text:
+    if clean_the_text:
         # Clean the output 
-        cleaned_text = clean_chat_output(output_text)
+        # cleaned_text = clean_chat_output(output_text)
+        cleaned_text = clean_text(output_text)
     
         print("Generated text:\n", cleaned_text)
     
